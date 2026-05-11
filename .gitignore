@@ -1,0 +1,100 @@
+# API Keys and Secrets
+.env
+.env.local
+.env.production
+.env.*
+secrets.py
+config.local.py
+credentials.py
+api_keys.txt
+api_keys.json
+*.key
+*.pem
+
+# Python Artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+pythonenv*/
+
+# IDE and Editor Files
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
+
+# Testing and Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.log
+logs/*.log
+!logs/.gitkeep
+
+# Database Files
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+
+# FireLLM Specific
+data/chromadb/
+data/*.db
+data/vectorstore/
+*.pkl
+*.pickle
+scan_results_*.json
+scan_results_*.txt
+
+# OS Specific
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+
+# Node modules (if any frontend tools are used)
+node_modules/
+npm-debug.log
+
+# Temporary Files
+*.tmp
+*.temp
+tmp_*
+temp_*
