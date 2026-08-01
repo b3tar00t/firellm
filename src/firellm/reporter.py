@@ -75,6 +75,15 @@ class Reporter:
             lines.append("")
         return "\n".join(lines)
 
+    def write(self, results: List[ScanResult], output_format: str = "text", destination: Optional[str] = None) -> str:
+        rendered = self.format(results, output_format=output_format)
+        if destination is None:
+            return rendered
+
+        with open(destination, "w", encoding="utf-8") as handle:
+            handle.write(rendered)
+        return rendered
+
     def _build_payload(self, results: List[ScanResult]) -> Dict[str, Any]:
         return {
             "report": [

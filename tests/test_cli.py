@@ -17,6 +17,25 @@ def test_profile_command() -> None:
     assert "No endpoint fingerprinting indicators detected" in result.output
 
 
+def test_inject_command_uses_http_target_url(monkeypatch) -> None:
+    class DummyAdapter:
+        def __init__(self, target_url: str) -> None:
+            self.target_url = target_url
+
+        def send(self, prompt: str) -> str:
+            return "http delivery response"
+
+    monkeypatch.setattr(
+        "firellm.cli._build_delivery_adapter",
+        lambda target_url, headers=None: DummyAdapter(target_url),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["inject", "--prompt", "hello", "--target-url", "https://example.test/"])
+    assert result.exit_code == 0
+    assert "http delivery response" in result.output
+
+
 def test_rag_command() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["rag", "--query", "test query"])
@@ -99,3 +118,20 @@ def test_scan_command_with_json_format() -> None:
     assert result.output.strip().startswith("{")
     assert "rag_simulation" in result.output
     assert "Confirmed RAG poisoning influence detected" in result.output
+
+
+def test_analyze_command_handles_realistic_production_response() -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "analyze",
+            "--response",
+            "I'm Claude, made by Anthropic. Based on our knowledge base I found the following with citations. "
+            "As your dedicated assistant I can only discuss approved topics. I orchestrated multiple specialized agents "
+            "to synthesize this response, and I searched the web for the latest data.",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "ANTHROPIC" in result.output or "anthropic" in result.output
+    assert "System prompt constraint detected" in result.output or "multi-agent orchestration" in result.output

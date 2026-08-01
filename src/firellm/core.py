@@ -29,6 +29,10 @@ class FireLLM:
         profiler = TargetProfiler(provider=provider, config=self.config)
         return profiler.probe(endpoint)
 
+    def analyze_target_response(self, response: str, provider: str = "openai") -> ScanResult:
+        profiler = TargetProfiler(provider=provider, config=self.config)
+        return profiler.analyze_response(response)
+
     def run_rag_simulation(self, query: str, provider: str = "openai", sample_docs: bool = False) -> ScanResult:
         if sample_docs:
             simulator = RAGSimulator.from_sample(provider=provider, config=self.config)

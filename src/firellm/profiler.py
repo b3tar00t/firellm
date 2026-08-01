@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+from .response_analyzer import ResponseAnalyzer
 from .types import ScanResult
 
 
@@ -79,3 +80,41 @@ class TargetProfiler:
 
     def _infer_prompt_hints(self, endpoint: str) -> List[str]:
         return [hint for regex, hint in SYSTEM_PROMPT_HINTS if regex.search(endpoint)]
+
+    def analyze_response(self, response: str) -> ScanResult:
+        profile = ResponseAnalyzer.analyze_response(response)
+        details_lines = [
+            f"Response-based Model Fingerprinting:",
+            f"Inferred Provider: {profile.inferred_provider.upper()}",
+            f"Overall Confidence: {profile.overall_confidence}%",
+            "",
+            "Refusal Phrasing Analysis:",
+            f"  Confidence: {profile.refusal_phrasing.confidence}%",
+            f"  {profile.refusal_phrasing.reasoning}",
+            "",
+            "System Prompt Constraint Analysis:",
+            f"  Confidence: {profile.system_prompt_constraint.confidence}%",
+            f"  {profile.system_prompt_constraint.reasoning}",
+            "",
+            "RAG Usage Detection:",
+            f"  Confidence: {profile.rag_usage.confidence}%",
+            f"  {profile.rag_usage.reasoning}",
+            "",
+            "Pipeline Complexity Analysis:",
+            f"  Confidence: {profile.pipeline_complexity.confidence}%",
+            f"  {profile.pipeline_complexity.reasoning}",
+            "",
+            "Tool Capability Detection:",
+            f"  Confidence: {profile.tool_capability.confidence}%",
+            f"  {profile.tool_capability.reasoning}",
+        ]
+
+        return ScanResult(
+            name="target_profiling",
+            success=True,
+            severity="medium",
+            category="target_profiling",
+            tags=["response-based", "fingerprinting", profile.inferred_provider],
+            details="\n".join(details_lines),
+            metadata=profile.to_dict(),
+        )
