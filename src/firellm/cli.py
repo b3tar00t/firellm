@@ -1,6 +1,8 @@
 from typing import Dict, Optional
 
 import click
+import sys
+from typing import Any, Dict, List, Optional
 
 from .core import FireLLM
 from .delivery import HTTPPromptDeliveryAdapter, LocalHeuristicPromptDeliveryAdapter
@@ -12,6 +14,55 @@ def cli() -> None:
     pass
 
 
+def _build_adapter(
+    target_url: Optional[str],
+    header: tuple[str, ...],
+    timeout: float,
+    max_retries: int,
+    backoff_factor: float,
+    auth_token: Optional[str],
+    auth_username: Optional[str],
+    auth_password: Optional[str],
+    auth_key_name: Optional[str],
+    auth_key_value: Optional[str],
+) -> Optional[HTTPPromptDeliveryAdapter]:
+    if not target_url:
+        return None
+
+    # Parse headers
+    headers_dict = {}
+    for h in header:
+        if ":" in h:
+            k, v = h.split(":", 1)
+            headers_dict[k.strip()] = v.strip()
+
+    # Determine auth dict
+    auth_dict = None
+    if auth_token:
+        auth_dict = {"type": "bearer", "token": auth_token}
+    elif auth_username or auth_password:
+        auth_dict = {
+            "type": "basic",
+            "username": auth_username or "",
+            "password": auth_password or "",
+        }
+    elif auth_key_name and auth_key_value:
+        auth_dict = {
+            "type": "apikey",
+            "key_name": auth_key_name,
+            "key_value": auth_key_value,
+        }
+
+    return HTTPPromptDeliveryAdapter(
+        target_url=target_url,
+        headers=headers_dict,
+        timeout=timeout,
+        max_retries=max_retries,
+        backoff_factor=backoff_factor,
+        auth=auth_dict,
+    )
+
+
 @cli.command(name="inject")
 @click.option("--prompt", required=True, help="Prompt or payload to test for injection.")
 @click.option("--provider", default="openai", help="LLM provider to target.")
@@ -20,6 +71,18 @@ def cli() -> None:
 @click.option("--format", "output_format", type=click.Choice(["text", "json"], case_sensitive=False), default="text", help="Output format for the result.")
 def inject(prompt: str, provider: str, target_url: Optional[str], headers: tuple[str, ...], output_format: str) -> None:
     """Run the prompt injection engine."""
+    adapter = _build_adapter(
+        target_url=target_url,
+        header=header,
+        timeout=timeout,
+        max_retries=max_retries,
+        backoff_factor=backoff_factor,
+        auth_token=auth_token,
+        auth_username=auth_username,
+        auth_password=auth_password,
+        auth_key_name=auth_key_name,
+        auth_key_value=auth_key_value,
+    )
     engine = FireLLM()
     adapter = _build_delivery_adapter(target_url=target_url, headers=_parse_headers(headers))
     result = engine.run_prompt_injection(prompt=prompt, provider=provider, adapter=adapter)
@@ -83,6 +146,18 @@ def agent(instruction: str, provider: str, output_format: str) -> None:
 @click.option("--format", "output_format", type=click.Choice(["text", "json"], case_sensitive=False), default="text", help="Output format for the combined scan report.")
 def scan(prompt: str, endpoint: str, query: str, instruction: str, provider: str, target_url: Optional[str], headers: tuple[str, ...], sample: bool, output_format: str) -> None:
     """Run a combined scan across available firellm modules."""
+    adapter = _build_adapter(
+        target_url=target_url,
+        header=header,
+        timeout=timeout,
+        max_retries=max_retries,
+        backoff_factor=backoff_factor,
+        auth_token=auth_token,
+        auth_username=auth_username,
+        auth_password=auth_password,
+        auth_key_name=auth_key_name,
+        auth_key_value=auth_key_value,
+    )
     engine = FireLLM()
     results = []
 

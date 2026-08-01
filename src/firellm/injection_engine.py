@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from .delivery import LocalHeuristicPromptDeliveryAdapter, PromptDeliveryAdapter
 from .injection_payloads import DIRECT_PROMPT_INJECTION_PAYLOADS, InjectionPattern
-from .rag_simulator import tokenize
+from .rag_simulator import tokenize, semantic_like_score
 from .types import ScanResult
 
 
@@ -26,7 +26,12 @@ class PromptInjectionEngine:
         self.payloads = DIRECT_PROMPT_INJECTION_PAYLOADS
 
     def run(self, prompt: str) -> ScanResult:
+        # support multi-turn conversation history and optional RAG scan result
         findings = self._analyze_prompt(prompt)
+        conversation = self.config.get("conversation")
+        rag_result = self.config.get("rag_result")
+        if conversation:
+            findings += self._analyze_conversation(conversation)
         baseline_prompt = self._build_baseline_prompt(prompt)
         baseline_response = self.adapter.send(baseline_prompt)
         attack_response = self.adapter.send(prompt)
@@ -38,8 +43,8 @@ class PromptInjectionEngine:
             details = self._format_findings(findings, behavioral_delta, delivery_observations)
             metadata = {
                 "provider": self.provider,
-                "matches": [item.name for item in findings],
-                "confidence": [self._confidence_for_finding(item, behavioral_delta) for item in findings],
+                "matches": matches,
+                "confidence": confidences,
                 "baseline_prompt": baseline_prompt,
                 "baseline_response": self._summarize_text(baseline_response),
                 "attack_response": self._summarize_text(attack_response),
@@ -98,6 +103,12 @@ class PromptInjectionEngine:
     def _analyze_prompt(self, prompt: str) -> List[InjectionPattern]:
         return [payload for payload in self.payloads if payload.regex.search(prompt)]
 
+    def _analyze_conversation(self, conversation: List[str]) -> List[InjectionPattern]:
+        findings: List[InjectionPattern] = []
+        for msg in conversation:
+            findings.extend(self._analyze_prompt(msg))
+        return findings
+
     def _aggregate_severity(self, findings: List[InjectionPattern]) -> str:
         weight = max(SEVERITY_WEIGHT.get(item.severity, 1) for item in findings)
         return {1: "low", 2: "medium", 3: "high"}.get(weight, "medium")
@@ -140,11 +151,16 @@ class PromptInjectionEngine:
         return summary[:max_length] + ("..." if len(summary) > max_length else "")
 
     def _response_delta(self, baseline: str, attack: str) -> float:
-        baseline_tokens = set(tokenize(baseline))
-        attack_tokens = set(tokenize(attack))
-        union = baseline_tokens | attack_tokens
-        similarity = len(baseline_tokens & attack_tokens) / len(union) if union else 0.0
+        # Optionally use semantic-like scoring for behavioral delta
+        if self.config.get("use_semantic"):
+            sim = semantic_like_score(baseline, attack, weight=float(self.config.get("semantic_weight", 0.6)))
+        else:
+            baseline_tokens = set(tokenize(baseline))
+            attack_tokens = set(tokenize(attack))
+            union = baseline_tokens | attack_tokens
+            sim = len(baseline_tokens & attack_tokens) / len(union) if union else 0.0
+
         suspicious_matches = sum(1 for payload in self.payloads if payload.regex.search(attack))
         suspicious_ratio = suspicious_matches / len(self.payloads)
-        delta = max(0.0, min(1.0, suspicious_ratio + (1.0 - similarity) * 0.5))
+        delta = max(0.0, min(1.0, suspicious_ratio + (1.0 - sim) * 0.5))
         return round(delta, 2)

@@ -1,0 +1,235 @@
+================================================================================
+                              FIRELLM - PROJECT STATUS
+================================================================================
+
+PROJECT OVERVIEW
+================================================================================
+
+FireLLM is a Python 3.11+ adversarial security testing framework for
+LLM-integrated applications. It identifies prompt injection, RAG poisoning,
+and agent-abuse risks via offline simulations and heuristic adapters.
+
+Delivered: CLI tool + Python library
+Repo: src/firellm/
+Tests: 35 passing (deterministic, offline)
+
+Current focus: finish a small, scoped backlog to enable real-target testing
+and optionally improve semantic accuracy.
+
+================================================================================
+                      MODULE STATUS (CONCISE, MODULE-BY-MODULE)
+================================================================================
+
+Core Infrastructure                 ✅ DONE
+- Package layout and entrypoints
+- CLI commands: `inject`, `profile`, `rag`, `agent`, `scan`
+- Reporter (text and JSON)
+
+Target Profiler                    ✅ DONE
+- Provider fingerprints and pipeline hints
+- Confidence scoring and metadata
+- Tests: 3
+
+RAG Poisoning Engine               ✅ DONE (enhanced)
+- Document store and retrieval (top-k)
+- Poison/instruction pattern matching
+- Multi-doc aggregation, whitelist handling
+- Explainability: `top_docs`, `matched_snippets`, `context_score`, `explain_trace`
+- Lightweight token-count embeddings (configurable)
+- Tests: 13
+
+Prompt Injection Engine            ✅ DONE (enhanced)
+- Direct payload detection (regex)
+- Behavioral delta (baseline vs. attack)
+- Multi-turn conversation analysis
+- Indirect detection via RAG signals
+- Optional embeddings-enabled behavioral scoring
+- Tests: 6
+
+Agent Abuse Tester                 ✅ DONE
+- Rule-based agent misuse patterns and severity
+- Tests: 1
+
+Reporter & Types                   ✅ DONE
+- `ScanResult` dataclass, normalized outputs
+- Tests: 1
+
+Delivery Adapters                  ✅ DONE (hardened)
+- `LocalHeuristicPromptDeliveryAdapter` (mock) — used in tests
+- `HTTPPromptDeliveryAdapter` — hardened with httpx, timeouts, retries with exponential backoff, auth support (Bearer, Basic, and API Key), and CLI configurations.
+
+================================================================================
+                             TEST SUMMARY
+================================================================================
+Total tests: 45 (all passing)
+- CLI: 11
+- Core: 6
+- Delivery: 8
+- RAG: 13
+- Injection: 6
+- Reporter: 1
+
+All tests run offline using built-in sample data and deterministic mocks.
+
+================================================================================
+                              COMPLETED RECENTLY
+================================================================================
+- Hardened HTTP Prompt Delivery Adapter (httpx, retries, backoff, auth, timeouts, CLI support)
+- Added 8 new unit tests in test_delivery.py and 2 new CLI integration tests
+- Added explainability and top-k matched snippets to RAG
+- Implemented multi-doc agreement and whitelist handling
+- Expanded poison/instruction signature set
+- Added deterministic token-count embedding provider and integrated it
+  (configurable via `config['use_embeddings']`)
+- Wired embeddings into injection behavioral scoring
+- Added multi-turn and RAG-integration to the injection engine
+- Implemented a basic `HTTPPromptDeliveryAdapter.send` (POST via urllib)
+- Added unit tests exercising new features
+
+================================================================================
+                                 REMAINING (SCOPED)
+================================================================================
+We will limit the backlog to one focused, actionable item only:
+
+1) Replace deterministic token-count embeddings with model-based embeddings (optional)
+   - Provide a pluggable implementation using `sentence-transformers` or a hosted provider.
+   - Outcome: improved retrieval and behavioral accuracy; optional due to dependency cost.
+
+Only this item is recommended for the next iteration. Everything else
+is implemented, tested, and documented in-code.
+
+RAG Poisoning Engine
+================================================================================
+
+Module: RAG Poisoning Engine
+Status: ✅ Done (enhanced)
+
+What's done:
+- Document store and management: add_document, load_documents, clear_documents, load_sample_documents
+- Retrieval ranking: token Jaccard similarity plus optional deterministic embeddings
+- Top-k retrieval and multi-document (context) aggregation
+- Poison and instruction pattern matching (expanded signature set)
+- Whitelist support (per-document metadata + global whitelist in config)
+- Explainability output: `top_docs`, `matched_snippets`, `context_score`, `explain_trace`
+
+Tests:
+- tests/test_rag_simulator.py covers retrieval, poisoning tiers, explainability, whitelist
+- Test count for RAG: 13 passing
+
+Work left:
+- Optional: replace deterministic embeddings with a pluggable model-based provider (single optional task).
+
+--------------------------------------------------------------------------------
+
+Prompt Injection Engine
+================================================================================
+
+Module: Prompt Injection Engine
+Status: ✅ Done (enhanced)
+
+What's done:
+- Direct injection detection via regex payloads
+- Baseline vs. attack behavioral delta scoring
+- Optional semantic/embeddings-enabled behavioral scoring (configurable)
+- Multi-turn conversation analysis (accepts conversation history via config)
+- Indirect injection detection via RAG signals (accepts `rag_result` via config)
+
+Tests:
+- tests/test_injection_engine.py covers direct detection, baseline behavior, indirect RAG signals, multi-turn, embeddings behavioral
+- Test count for Injection: 6 passing
+
+Work left:
+- Tighten RAG provenance scoring to weight matched snippets by semantic proximity (optional after production embeddings).
+
+--------------------------------------------------------------------------------
+
+Core Infrastructure
+================================================================================
+
+Module: Core Infrastructure (CLI, Orchestrator, Reporter)
+Status: ✅ Done
+
+What's done:
+- CLI commands: `inject`, `profile`, `rag`, `agent`, `scan`
+- FireLLM orchestrator and module wiring
+- Reporter: text and JSON formatting
+
+Tests:
+- CLI tests: 9 passing
+
+Work left:
+- None
+
+--------------------------------------------------------------------------------
+
+Agent Abuse Tester
+================================================================================
+
+Module: Agent Abuse Tester
+Status: ✅ Done (basic)
+
+What's done:
+- Rule-based patterns for tool misuse and chaining
+- Severity classification and structured tags
+
+Tests:
+- 1 passing
+
+Work left:
+- Expand pattern library as needed (not prioritized now)
+
+--------------------------------------------------------------------------------
+
+Reporter & Types
+================================================================================
+
+Module: Reporter & Types
+Status: ✅ Done
+
+What's done:
+- `ScanResult` dataclass and normalized result formatting
+- JSON/text output preserved metadata
+
+Tests:
+- 1 passing
+
+Work left:
+- None
+
+--------------------------------------------------------------------------------
+
+Delivery Adapters
+================================================================================
+
+Module: Delivery Adapters
+Status: ✅ Done (hardened)
+
+What's done:
+- `LocalHeuristicPromptDeliveryAdapter` for deterministic tests
+- `HTTPPromptDeliveryAdapter.send` rewritten with `httpx` and retries with exponential backoff, configurable timeouts, and Bearer/Basic/API-Key authentication support.
+- CLI options in `cli.py` to configure the HTTP adapter during `inject` and `scan`.
+
+Tests:
+- Covered by 8 new unit tests in `tests/test_delivery.py` (retries, timeouts, auth schemes).
+- Covered by 2 new CLI integration tests in `tests/test_cli.py` (cli options, error handling).
+
+Work left:
+- None (HTTP delivery adapter is fully hardened).
+
+================================================================================
+Test summary (total)
+================================================================================
+Total tests: 45 passing (all offline/deterministic)
+
+================================================================================
+Remaining (scoped)
+================================================================================
+Only one focused item is remaining:
+
+1) Integrate production embeddings (optional)
+    - Replace token-count embeddings with a pluggable provider (e.g., sentence-transformers).
+
+================================================================================
+Next action
+================================================================================
+Reply with: "Embeddings" or specify another custom task to proceed.

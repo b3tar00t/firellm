@@ -25,6 +25,27 @@ def test_target_profiler_detects_openai_endpoint() -> None:
     assert "openai_gpt" in result.details
 
 
+def test_target_profiler_detects_rag_pipeline_hints() -> None:
+    from firellm.profiler import TargetProfiler
+
+    profiler = TargetProfiler()
+    result = profiler.probe("https://example.com/knowledge-base-rag-agent")
+    assert result.success is True
+    assert "Potential pipeline hints" in result.details
+    assert result.metadata["pipeline_hints"]
+    assert result.metadata["confidence"] >= 0.35
+
+
+def test_target_profiler_detects_local_ollama_endpoint() -> None:
+    from firellm.profiler import TargetProfiler
+
+    profiler = TargetProfiler()
+    result = profiler.probe("http://127.0.0.1:11434/v1/chat/completions")
+    assert result.success is True
+    assert "local_ollama" in result.details
+    assert result.metadata["matches"] == ["local_ollama"]
+
+
 def test_agent_tester_detects_tool_abuse() -> None:
     from firellm.agent_tester import AgentTester
 
