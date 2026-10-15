@@ -11,10 +11,12 @@ and agent-abuse risks via offline simulations and heuristic adapters.
 
 Delivered: CLI tool + Python library
 Repo: src/firellm/
-Tests: 100 passing (deterministic, offline)
+Tests: 119 passing (deterministic, offline)
 
-Current focus: real-target testing (live scan runner + finding confirmation
-gate) complete. Next backlog item is the exploitation/report layer.
+Current focus: tool complete and ready for blind test. Live scan runner,
+exploitation/report layer, and confidence calibration all done. Remaining
+caveat: agent-abuse findings are informational (instruction classifier, not
+response-confirmed) until tool-call observation lands.
 
 ================================================================================
                       MODULE STATUS (CONCISE, MODULE-BY-MODULE)
@@ -62,6 +64,22 @@ Scan Runner                        ✅ DONE
 - Module selection, severity breakdown, OWASP mapping, recommendations
 - Finding confirmation gate (behavioral delta before a finding is kept)
 
+Confidence Calibration             ✅ DONE
+- Two-axis severity from behavioral delta + confidence + indicator count
+- `confidence_explanation` field documenting each rating (calibration.py)
+- Replaces per-analyzer severity on live-scan findings
+- Tests: 19 (tests/test_calibration.py)
+
+Exploitation / Report Layer        ✅ DONE
+- Per-finding evidence package (exact payload + exact response)
+- Reproduction command, tailored follow-up payload per vuln class
+- `exploit` CLI command gated behind explicit --confirm authorization
+
+Agent Abuse Tester                 🟡 INFORMATIONAL
+- Classifies dispatched instruction, not target response
+- HTTP adapter cannot observe tool calls yet
+- Report findings as informational, NOT response-confirmed
+
 Delivery Adapters                  ✅ DONE (merged)
 - Single module (delivery.py): ABC + LocalHeuristic + httpx + requests adapters
 - http_adapter.py removed; scan_runner + CLI import from delivery.py
@@ -77,9 +95,10 @@ Delivery Adapters                  ✅ DONE (hardened)
 ================================================================================
                              TEST SUMMARY
 ================================================================================
-Total tests: 100 (all passing)
+Total tests: 119 (all passing)
 Covers CLI, core, delivery (merged httpx+requests), RAG, injection, reporter,
-agent tester, attack surface, context leakage, HTTP adapter, and scan runner.
+agent tester, attack surface, context leakage, HTTP adapter, scan runner,
+calibration, and exploitation.
 
 All tests run offline using built-in sample data and deterministic mocks.
 
@@ -101,15 +120,11 @@ All tests run offline using built-in sample data and deterministic mocks.
 ================================================================================
                                  REMAINING (SCOPED)
 ================================================================================
-Model-based embeddings (sentence-transformers) are now integrated with a
-deterministic fallback. Remaining backlog:
+Core offensive modules, exploitation layer, and confidence calibration are
+all complete. Remaining backlog:
 
-1) Exploitation / report layer (next priority)
-   - For each confirmed finding: exact payload, exact response as evidence,
-     reproduction command, and a tailored follow-up payload per vuln class.
-   - Outcome: confirmed findings become defensible bug-bounty reports.
-2) Confidence calibration (optional).
-3) Web dashboard (FastAPI + Jinja2) for demo/presentation (optional).
+1) Tool-call observation so agent findings become response-confirmed.
+2) Web dashboard (FastAPI + Jinja2) for demo/presentation (optional).
 
 RAG Poisoning Engine
 ================================================================================
@@ -232,17 +247,15 @@ Work left:
 ================================================================================
 Test summary (total)
 ================================================================================
-Total tests: 100 passing (all offline/deterministic)
+Total tests: 119 passing (all offline/deterministic)
 
 ================================================================================
 Remaining (scoped)
 ================================================================================
-1) Exploitation / report layer (next priority): payload + response evidence,
-   reproduction command, tailored follow-up payload per vuln class.
-2) Confidence calibration (optional).
-3) Web dashboard FastAPI + Jinja2 for demo/presentation (optional).
+1) Tool-call observation so agent findings become response-confirmed.
+2) Web dashboard FastAPI + Jinja2 for demo/presentation (optional).
 
 ================================================================================
 Next action
 ================================================================================
-Build the exploitation/report layer for confirmed findings.
+Tool ready for blind test. Run live scan against authorized RAG target.

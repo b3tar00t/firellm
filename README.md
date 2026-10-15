@@ -83,12 +83,25 @@ Delivered as:
 | Module | Status |
 |---|---|
 | Core Infrastructure | ✅ Complete |
-| Target Profiler | 🟡 Near Complete |
-| RAG Poisoning Engine | 🟡 Near Complete |
-| Prompt Injection Engine | 🔴 In Progress |
-| HTTP Delivery Layer | 🔴 Planned |
-| Agent Abuse Testing | 🔴 Planned |
+| Target Profiler | ✅ Complete |
+| RAG Poisoning Engine | ✅ Complete |
+| Prompt Injection Engine | ✅ Complete |
+| HTTP Delivery Layer | ✅ Complete |
+| Attack Surface Scanner | ✅ Complete |
+| Context Leakage Analyzer | ✅ Complete |
+| Live Scan Runner | ✅ Complete |
+| Confidence Calibration | ✅ Complete |
+| Exploitation / Report Layer | ✅ Complete |
+| Agent Abuse Testing | 🟡 Informational only (see note) |
 | PyPI Release | 🔴 Planned |
+
+> **Note on agent findings.** The agent-abuse module classifies the attack
+> *instruction* it dispatches, not the target's response — the HTTP adapter
+> cannot yet observe tool calls, so agent results are **informational**, not
+> response-confirmed. In reports, treat injection, RAG, and attack-surface
+> findings as response-confirmed; treat agent findings as informational.
+
+Test suite: **119 passing** (offline, deterministic).
 
 ---
 
@@ -315,10 +328,12 @@ FireLLM draws inspiration from emerging research in:
 - Attack surface scanner (decoding + semantic intent detection)
 - Context leakage analyzer
 - Live scan runner with finding confirmation gate
-- Agent abuse testing (extended pattern library)
+- Agent abuse testing (extended pattern library; informational results only)
+- Confidence calibration (two-axis severity: behavioral delta + confidence, with `confidence_explanation`)
+- Exploitation / report layer (per-finding evidence package, reproduction command, tailored follow-up payload)
 
 ## Near-Term
-- Add confidence calibration
+- Tool-call observation to make agent findings response-confirmed
 - Expanded payload libraries
 
 ## Mid-Term
