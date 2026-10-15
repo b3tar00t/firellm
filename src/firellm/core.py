@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from .agent_tester import AgentTester
+from .attack_surface import AttackSurfaceAnalyzer
+from .context_leakage import ContextLeakageAnalyzer
 from .delivery import PromptDeliveryAdapter
 from .injection_engine import PromptInjectionEngine
 from .profiler import TargetProfiler
@@ -43,6 +45,14 @@ class FireLLM:
     def run_agent_test(self, instruction: str, provider: str = "openai") -> ScanResult:
         tester = AgentTester(provider=provider, config=self.config)
         return tester.test(instruction)
+
+    def run_context_leakage_analysis(self, prompt: str, provider: str = "openai") -> ScanResult:
+        analyzer = ContextLeakageAnalyzer(provider=provider, config=self.config)
+        return analyzer.analyze(prompt)
+
+    def run_attack_surface_analysis(self, prompt: str, provider: str = "openai", semantic: bool = False) -> ScanResult:
+        analyzer = AttackSurfaceAnalyzer(provider=provider, config=self.config)
+        return analyzer.analyze(prompt, semantic=semantic)
 
     def generate_report(self, results: list[ScanResult], output_format: str = "text") -> str:
         reporter = Reporter(config=self.config)

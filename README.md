@@ -308,15 +308,20 @@ FireLLM draws inspiration from emerging research in:
 
 # 🗺️ Roadmap
 
+## Completed
+- Prompt injection engine (direct, behavioral delta, multi-turn, indirect/RAG)
+- HTTP delivery layer (httpx + requests adapters, retries, backoff, auth)
+- Behavioral scoring (sentence-transformers embeddings with deterministic fallback)
+- Attack surface scanner (decoding + semantic intent detection)
+- Context leakage analyzer
+- Live scan runner with finding confirmation gate
+- Agent abuse testing (extended pattern library)
+
 ## Near-Term
-- Complete prompt injection engine
-- Implement HTTP delivery layer
-- Add behavioral scoring
 - Add confidence calibration
+- Expanded payload libraries
 
 ## Mid-Term
-- Agent abuse testing
-- Expanded payload libraries
 - Multi-target orchestration
 - CI/CD integrations
 

@@ -109,6 +109,16 @@ class TargetProfiler:
     def _infer_prompt_hints(self, endpoint: str) -> List[str]:
         return [hint for regex, hint in SYSTEM_PROMPT_HINTS if regex.search(endpoint)]
 
+    def _infer_pipeline_hints(self, endpoint: str) -> List[str]:
+        return [hint for regex, hint in PIPELINE_HINTS if regex.search(endpoint)]
+
+    def _confidence(self, matches: List[Dict[str, Any]], prompt_hints: List[str], pipeline_hints: List[str]) -> float:
+        base = 0.15
+        base += 0.2 * len(matches)
+        base += 0.1 * len(prompt_hints)
+        base += 0.12 * len(pipeline_hints)
+        return round(min(1.0, base), 2)
+
     def analyze_response(self, response: str) -> ScanResult:
         profile = ResponseAnalyzer.analyze_response(response)
         details_lines = [

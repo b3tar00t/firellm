@@ -251,3 +251,40 @@ def test_support_ticket_with_role_constraints_is_detected() -> None:
     assert result.system_prompt_constraint.metadata["constraint_indicator_count"] >= 1
     assert result.pipeline_complexity.metadata["is_complex_pipeline"] is False
 
+
+
+# --- Step 5: calibration regression tests (TDD: written before the fix) ---
+
+
+def test_rag_usage_flips_true_and_confident_at_two_indicators() -> None:
+    # Two distinct RAG indicator phrases: "according to .* document" and "source:".
+    two_indicator_response = (
+        "According to the retrieved document, the policy renews annually. "
+        "Source: kb://hr/policies/renewal.md"
+    )
+    result = ResponseAnalyzer.analyze_response(two_indicator_response)
+    assert result.rag_usage.metadata["uses_rag"] is True
+    assert result.rag_usage.confidence > 50
+
+
+def test_system_prompt_constraint_confidence_one_indicator() -> None:
+    one_indicator = "My role is to help you plan your trip."
+    result = ResponseAnalyzer.analyze_system_prompt_constraint(one_indicator)
+    assert result.metadata["constraint_indicator_count"] == 1
+    assert 35 <= result.confidence <= 50
+
+
+def test_system_prompt_constraint_confidence_two_indicators() -> None:
+    two_indicators = "As instructed, my role is to assist with travel questions."
+    result = ResponseAnalyzer.analyze_system_prompt_constraint(two_indicators)
+    assert result.metadata["constraint_indicator_count"] == 2
+    assert 60 <= result.confidence <= 70
+
+
+def test_system_prompt_constraint_confidence_three_indicators() -> None:
+    three_indicators = (
+        "As instructed, my role is to assist you. I should note the booking limits."
+    )
+    result = ResponseAnalyzer.analyze_system_prompt_constraint(three_indicators)
+    assert result.metadata["constraint_indicator_count"] == 3
+    assert result.confidence > 80

@@ -38,13 +38,22 @@ class PromptInjectionEngine:
         behavioral_delta = self._response_delta(baseline_response, attack_response)
         delivery_observations = self._format_delivery_observations(baseline_response, attack_response)
 
-        if findings:
-            severity = self._aggregate_severity(findings)
+        rag_influence = 0.0
+        if rag_result is not None and getattr(rag_result, "success", False):
+            rag_influence = max(0.2, min(1.0, 0.3 + (rag_result.metadata.get("score", 0.0) or 0.0)))
+
+        if findings or rag_influence > 0.0:
+            severity = self._aggregate_severity(findings) if findings else "medium"
             details = self._format_findings(findings, behavioral_delta, delivery_observations)
+            if rag_influence > 0.0:
+                details += f"\nRAG influence detected (score={rag_influence:.2f})."
+            match_names = [item.name for item in findings]
+            confidences = [self._confidence_for_finding(item, behavioral_delta) for item in findings]
             metadata = {
                 "provider": self.provider,
-                "matches": matches,
+                "matches": match_names,
                 "confidence": confidences,
+                "rag_influence": rag_influence,
                 "baseline_prompt": baseline_prompt,
                 "baseline_response": self._summarize_text(baseline_response),
                 "attack_response": self._summarize_text(attack_response),
@@ -74,6 +83,9 @@ class PromptInjectionEngine:
                 details=details,
                 metadata={
                     "provider": self.provider,
+                    "matches": [],
+                    "confidence": [],
+                    "rag_influence": 0.0,
                     "baseline_prompt": baseline_prompt,
                     "baseline_response": self._summarize_text(baseline_response),
                     "attack_response": self._summarize_text(attack_response),
@@ -93,6 +105,8 @@ class PromptInjectionEngine:
             metadata={
                 "provider": self.provider,
                 "matches": [],
+                "confidence": [],
+                "rag_influence": 0.0,
                 "baseline_prompt": baseline_prompt,
                 "baseline_response": self._summarize_text(baseline_response),
                 "attack_response": self._summarize_text(attack_response),

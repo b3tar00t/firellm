@@ -11,10 +11,10 @@ and agent-abuse risks via offline simulations and heuristic adapters.
 
 Delivered: CLI tool + Python library
 Repo: src/firellm/
-Tests: 35 passing (deterministic, offline)
+Tests: 100 passing (deterministic, offline)
 
-Current focus: finish a small, scoped backlog to enable real-target testing
-and optionally improve semantic accuracy.
+Current focus: real-target testing (live scan runner + finding confirmation
+gate) complete. Next backlog item is the exploitation/report layer.
 
 ================================================================================
                       MODULE STATUS (CONCISE, MODULE-BY-MODULE)
@@ -46,9 +46,25 @@ Prompt Injection Engine            ✅ DONE (enhanced)
 - Optional embeddings-enabled behavioral scoring
 - Tests: 6
 
-Agent Abuse Tester                 ✅ DONE
+Agent Abuse Tester                 ✅ DONE (extended)
 - Rule-based agent misuse patterns and severity
-- Tests: 1
+- Extended pattern library
+
+Attack Surface Scanner             ✅ DONE
+- Deterministic pre-filter: base64/URL/HTML/leetspeak decoding
+- Semantic intent detection (sentence-transformers, guarded fallback)
+
+Context Leakage Analyzer           ✅ DONE
+- System-prompt / context disclosure detection, wired into core + CLI
+
+Scan Runner                        ✅ DONE
+- Live scan against target URL via HTTP adapter
+- Module selection, severity breakdown, OWASP mapping, recommendations
+- Finding confirmation gate (behavioral delta before a finding is kept)
+
+Delivery Adapters                  ✅ DONE (merged)
+- Single module (delivery.py): ABC + LocalHeuristic + httpx + requests adapters
+- http_adapter.py removed; scan_runner + CLI import from delivery.py
 
 Reporter & Types                   ✅ DONE
 - `ScanResult` dataclass, normalized outputs
@@ -61,13 +77,9 @@ Delivery Adapters                  ✅ DONE (hardened)
 ================================================================================
                              TEST SUMMARY
 ================================================================================
-Total tests: 45 (all passing)
-- CLI: 11
-- Core: 6
-- Delivery: 8
-- RAG: 13
-- Injection: 6
-- Reporter: 1
+Total tests: 100 (all passing)
+Covers CLI, core, delivery (merged httpx+requests), RAG, injection, reporter,
+agent tester, attack surface, context leakage, HTTP adapter, and scan runner.
 
 All tests run offline using built-in sample data and deterministic mocks.
 
@@ -89,14 +101,15 @@ All tests run offline using built-in sample data and deterministic mocks.
 ================================================================================
                                  REMAINING (SCOPED)
 ================================================================================
-We will limit the backlog to one focused, actionable item only:
+Model-based embeddings (sentence-transformers) are now integrated with a
+deterministic fallback. Remaining backlog:
 
-1) Replace deterministic token-count embeddings with model-based embeddings (optional)
-   - Provide a pluggable implementation using `sentence-transformers` or a hosted provider.
-   - Outcome: improved retrieval and behavioral accuracy; optional due to dependency cost.
-
-Only this item is recommended for the next iteration. Everything else
-is implemented, tested, and documented in-code.
+1) Exploitation / report layer (next priority)
+   - For each confirmed finding: exact payload, exact response as evidence,
+     reproduction command, and a tailored follow-up payload per vuln class.
+   - Outcome: confirmed findings become defensible bug-bounty reports.
+2) Confidence calibration (optional).
+3) Web dashboard (FastAPI + Jinja2) for demo/presentation (optional).
 
 RAG Poisoning Engine
 ================================================================================
@@ -219,17 +232,17 @@ Work left:
 ================================================================================
 Test summary (total)
 ================================================================================
-Total tests: 45 passing (all offline/deterministic)
+Total tests: 100 passing (all offline/deterministic)
 
 ================================================================================
 Remaining (scoped)
 ================================================================================
-Only one focused item is remaining:
-
-1) Integrate production embeddings (optional)
-    - Replace token-count embeddings with a pluggable provider (e.g., sentence-transformers).
+1) Exploitation / report layer (next priority): payload + response evidence,
+   reproduction command, tailored follow-up payload per vuln class.
+2) Confidence calibration (optional).
+3) Web dashboard FastAPI + Jinja2 for demo/presentation (optional).
 
 ================================================================================
 Next action
 ================================================================================
-Reply with: "Embeddings" or specify another custom task to proceed.
+Build the exploitation/report layer for confirmed findings.

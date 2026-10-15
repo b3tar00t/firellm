@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import responses
 from click.testing import CliRunner
 
 from firellm.cli import cli
@@ -137,3 +138,38 @@ def test_analyze_command_handles_realistic_production_response() -> None:
     assert result.exit_code == 0
     assert "ANTHROPIC" in result.output or "anthropic" in result.output
     assert "System prompt constraint detected" in result.output or "multi-agent orchestration" in result.output
+
+
+@responses.activate
+def test_scan_agent_module_end_to_end() -> None:
+    import json as _json
+
+    for _ in range(12):
+        responses.add(
+            responses.POST,
+            "http://mock/chat",
+            json={"choices": [{"message": {"content": "Sure, here is the result."}}]},
+            status=200,
+        )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "scan",
+            "--target-url",
+            "http://mock/chat",
+            "--modules",
+            "agent",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    # CliRunner may capture library warnings (HF/logging) ahead of the JSON
+    # report, so parse from the first brace rather than the raw output.
+    raw = result.output
+    report = _json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
+    agent_findings = [f for f in report["findings"] if f.get("category") == "agent_abuse"]
+    assert len(agent_findings) >= 1

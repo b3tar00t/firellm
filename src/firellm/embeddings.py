@@ -1,11 +1,69 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from math import sqrt
-from typing import Dict, Iterable, List
+from typing import Iterable, List, Sequence
 
-import re
-from typing import List
+# sentence-transformers is the canonical embedding path, consistent with
+# attack_surface.py (all-MiniLM-L6-v2). It is imported defensively so offline
+# environments without the model fall back to the deterministic token-count
+# path below instead of crashing.
+try:  # pragma: no cover - import guard
+    from sentence_transformers import SentenceTransformer, util
+except Exception:  # pragma: no cover - import guard
+    SentenceTransformer = None  # type: ignore
+    util = None  # type: ignore
+
+_MODEL = None
+_MODEL_FAILED = False
+
+
+def get_model():
+    """Load and cache the all-MiniLM-L6-v2 model, matching attack_surface.py.
+
+    Returns None when sentence-transformers or its weights are unavailable, so
+    callers fall back to the deterministic token-count path.
+    """
+    global _MODEL, _MODEL_FAILED
+    if _MODEL is None and not _MODEL_FAILED:
+        if SentenceTransformer is None:
+            _MODEL_FAILED = True
+            return None
+        try:
+            _MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+        except Exception:
+            _MODEL_FAILED = True
+            _MODEL = None
+    return _MODEL
+
+
+def embed_texts(texts: Sequence[str]) -> List:
+    """Return a sentence-transformer embedding per text (canonical path).
+
+    Falls back to token-count Counters when the model is unavailable so
+    behavioral-delta computation still works fully offline.
+    """
+    model = get_model()
+    if model is None:
+        return embed_counts(texts)
+    return [model.encode(text, convert_to_tensor=True) for text in texts]
+
+
+def cosine(left, right) -> float:
+    """Cosine similarity for sentence-transformer tensors or Counter fallbacks."""
+    if isinstance(left, Counter) and isinstance(right, Counter):
+        return cosine_from_counters(left, right)
+    if util is not None:
+        try:
+            return float(util.cos_sim(left, right).item())
+        except Exception:
+            return 0.0
+    return 0.0
+
+
+# --- token-count helpers (deterministic, dependency-free) ---------------------
+# Retained for rag_simulator.py, which is the custom local heuristic RAG sim.
 
 
 def tokenize(text: str) -> List[str]:

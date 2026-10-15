@@ -163,7 +163,17 @@ class ResponseAnalyzer:
     def analyze_system_prompt_constraint(response: str) -> AnalysisResult:
         constraint_indicators = [p.pattern for p in SYSTEM_PROMPT_CONSTRAINT_PATTERNS if p.search(response)]
         matches = len(constraint_indicators)
-        confidence = min(100, max(0, int((matches / len(SYSTEM_PROMPT_CONSTRAINT_PATTERNS)) * 100)))
+        # Confidence scales by indicator count: 1 -> 40%, 2 -> 65%, 3+ -> 85%.
+        # The raw fraction-of-patterns scaling under-reported single-indicator
+        # constraints (16% for 1 of 6 patterns), suppressing real detections.
+        if matches >= 3:
+            confidence = 85
+        elif matches == 2:
+            confidence = 65
+        elif matches == 1:
+            confidence = 40
+        else:
+            confidence = 0
         has_constraint = matches >= 1
 
         reasoning = (
@@ -186,7 +196,16 @@ class ResponseAnalyzer:
     @staticmethod
     def analyze_rag_usage(response: str) -> AnalysisResult:
         rag_matches = sum(1 for pattern in RAG_DETECTION_PATTERNS if pattern.search(response))
-        confidence = min(100, max(0, int((rag_matches / len(RAG_DETECTION_PATTERNS)) * 100)))
+        # uses_rag flips at 2+ indicators; confidence is calibrated so that
+        # threshold reads as confident (2 -> 55%, rising with each further
+        # indicator). The old fraction-of-patterns scaling gave only 25% at the
+        # 2-indicator flip point, contradicting the boolean it set.
+        if rag_matches >= 2:
+            confidence = min(100, 55 + (rag_matches - 2) * 10)
+        elif rag_matches == 1:
+            confidence = 25
+        else:
+            confidence = 0
         uses_rag = rag_matches >= 2
 
         rag_signals = [p.pattern for p in RAG_DETECTION_PATTERNS if p.search(response)]

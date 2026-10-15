@@ -1,22 +1,61 @@
 from typing import Dict, Optional
 
 import click
-import sys
-from typing import Any, Dict, List, Optional
+
+import json
 
 from .core import FireLLM
-from .delivery import HTTPPromptDeliveryAdapter, LocalHeuristicPromptDeliveryAdapter
-
+from .delivery import HTTPAdapter, HTTPPromptDeliveryAdapter, LocalHeuristicPromptDeliveryAdapter
+from .scan_runner import ScanRunner
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 @click.group()
 def cli() -> None:
     """firellm CLI for adversarial LLM testing."""
-    pass
 
 
-def _build_adapter(
+def _build_delivery_adapter(
     target_url: Optional[str],
-    header: tuple[str, ...],
+    headers: Optional[Dict[str, str]] = None,
+    **_: object,
+):
+    if not target_url:
+        return LocalHeuristicPromptDeliveryAdapter()
+
+    return HTTPPromptDeliveryAdapter(target_url=target_url, headers=headers)
+
+
+def _parse_headers(header_values: tuple[str, ...]) -> Dict[str, str]:
+    parsed_headers: Dict[str, str] = {}
+    for header_value in header_values:
+        if ":" not in header_value:
+            raise click.BadParameter("Headers must be in the form Name:Value")
+        name, value = header_value.split(":", 1)
+        parsed_headers[name.strip()] = value.strip()
+    return parsed_headers
+
+
+@cli.command(name="inject")
+@click.option("--prompt", required=True, help="Prompt or payload to test for injection.")
+@click.option("--provider", default="openai", help="LLM provider to target.")
+@click.option("--target-url", default=None, help="Optional HTTP endpoint to deliver prompts to.")
+@click.option("--header", "headers", multiple=True, help="Optional header in Name:Value form for HTTP delivery.")
+@click.option("--timeout", default=10.0, type=float, show_default=True, help="HTTP timeout in seconds for delivery.")
+@click.option("--max-retries", default=3, type=int, show_default=True, help="Maximum retries for HTTP delivery.")
+@click.option("--backoff-factor", default=1.5, type=float, show_default=True, help="Backoff factor for HTTP delivery retries.")
+@click.option("--auth-token", default=None, help="Bearer token for HTTP delivery authentication.")
+@click.option("--auth-username", default=None, help="Basic auth username for HTTP delivery.")
+@click.option("--auth-password", default=None, help="Basic auth password for HTTP delivery.")
+@click.option("--auth-key-name", default=None, help="API key header name for HTTP delivery.")
+@click.option("--auth-key-value", default=None, help="API key header value for HTTP delivery.")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"], case_sensitive=False), default="text", help="Output format for the result.")
+def inject(
+    prompt: str,
+    provider: str,
+    target_url: Optional[str],
+    headers: tuple[str, ...],
     timeout: float,
     max_retries: int,
     backoff_factor: float,
@@ -25,64 +64,9 @@ def _build_adapter(
     auth_password: Optional[str],
     auth_key_name: Optional[str],
     auth_key_value: Optional[str],
-) -> Optional[HTTPPromptDeliveryAdapter]:
-    if not target_url:
-        return None
-
-    # Parse headers
-    headers_dict = {}
-    for h in header:
-        if ":" in h:
-            k, v = h.split(":", 1)
-            headers_dict[k.strip()] = v.strip()
-
-    # Determine auth dict
-    auth_dict = None
-    if auth_token:
-        auth_dict = {"type": "bearer", "token": auth_token}
-    elif auth_username or auth_password:
-        auth_dict = {
-            "type": "basic",
-            "username": auth_username or "",
-            "password": auth_password or "",
-        }
-    elif auth_key_name and auth_key_value:
-        auth_dict = {
-            "type": "apikey",
-            "key_name": auth_key_name,
-            "key_value": auth_key_value,
-        }
-
-    return HTTPPromptDeliveryAdapter(
-        target_url=target_url,
-        headers=headers_dict,
-        timeout=timeout,
-        max_retries=max_retries,
-        backoff_factor=backoff_factor,
-        auth=auth_dict,
-    )
-
-
-@cli.command(name="inject")
-@click.option("--prompt", required=True, help="Prompt or payload to test for injection.")
-@click.option("--provider", default="openai", help="LLM provider to target.")
-@click.option("--target-url", default=None, help="Optional HTTP endpoint to deliver prompts to.")
-@click.option("--header", "headers", multiple=True, help="Optional header in Name:Value form for HTTP delivery.")
-@click.option("--format", "output_format", type=click.Choice(["text", "json"], case_sensitive=False), default="text", help="Output format for the result.")
-def inject(prompt: str, provider: str, target_url: Optional[str], headers: tuple[str, ...], output_format: str) -> None:
+    output_format: str,
+) -> None:
     """Run the prompt injection engine."""
-    adapter = _build_adapter(
-        target_url=target_url,
-        header=header,
-        timeout=timeout,
-        max_retries=max_retries,
-        backoff_factor=backoff_factor,
-        auth_token=auth_token,
-        auth_username=auth_username,
-        auth_password=auth_password,
-        auth_key_name=auth_key_name,
-        auth_key_value=auth_key_value,
-    )
     engine = FireLLM()
     adapter = _build_delivery_adapter(target_url=target_url, headers=_parse_headers(headers))
     result = engine.run_prompt_injection(prompt=prompt, provider=provider, adapter=adapter)
@@ -124,13 +108,36 @@ def rag(query: str, provider: str, sample: bool, output_format: str) -> None:
 
 
 @cli.command(name="agent")
-@click.option("--instruction", required=True, help="Instruction to test against an agent." )
+@click.option("--instruction", required=True, help="Instruction to test against an agent.")
 @click.option("--provider", default="openai", help="LLM provider to target.")
 @click.option("--format", "output_format", type=click.Choice(["text", "json"], case_sensitive=False), default="text", help="Output format for the result.")
 def agent(instruction: str, provider: str, output_format: str) -> None:
     """Run basic agent tool abuse tests."""
     engine = FireLLM()
     result = engine.run_agent_test(instruction=instruction, provider=provider)
+    click.echo(_render_result(result, engine, output_format))
+
+
+@cli.command(name="leak")
+@click.option("--prompt", required=True, help="Prompt to analyze for context leakage patterns.")
+@click.option("--provider", default="openai", help="LLM provider to target.")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"], case_sensitive=False), default="text", help="Output format for the result.")
+def leak(prompt: str, provider: str, output_format: str) -> None:
+    """Run the context leakage analyzer."""
+    engine = FireLLM()
+    result = engine.run_context_leakage_analysis(prompt=prompt, provider=provider)
+    click.echo(_render_result(result, engine, output_format))
+
+
+@cli.command(name="surface")
+@click.option("--prompt", required=True, help="Prompt to analyze across the broader attack surface.")
+@click.option("--provider", default="openai", help="LLM provider to target.")
+@click.option("--semantic", is_flag=True, default=False, help="Enable the offline semantic intent classifier on top of deterministic detection.")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"], case_sensitive=False), default="text", help="Output format for the result.")
+def surface(prompt: str, provider: str, semantic: bool, output_format: str) -> None:
+    """Run the generalized attack surface analyzer."""
+    engine = FireLLM()
+    result = engine.run_attack_surface_analysis(prompt=prompt, provider=provider, semantic=semantic)
     click.echo(_render_result(result, engine, output_format))
 
 
@@ -141,23 +148,98 @@ def agent(instruction: str, provider: str, output_format: str) -> None:
 @click.option("--instruction", help="Instruction to test against an agent.")
 @click.option("--provider", default="openai", help="LLM provider to target.")
 @click.option("--target-url", default=None, help="Optional HTTP endpoint to deliver prompts to when injection scanning is enabled.")
+@click.option("--method", default="POST", show_default=True, help="HTTP method for live delivery.")
 @click.option("--header", "headers", multiple=True, help="Optional header in Name:Value form for HTTP delivery.")
+@click.option("--body-format", type=click.Choice(["messages", "prompt", "form"], case_sensitive=False), default="messages", show_default=True, help="Request body format for HTTP delivery.")
+@click.option("--response-key", default=None, help="Dot-notation key path for extracting the reply from a JSON response.")
+@click.option("--modules", default="injection,rag,surface", show_default=True, help="Comma-separated modules to run during live scanning.")
+@click.option("--delay", default=2.0, type=float, show_default=True, help="Delay in seconds between requests.")
+@click.option("--timeout", default=10.0, type=float, show_default=True, help="HTTP timeout in seconds for delivery.")
+@click.option("--max-retries", default=3, type=int, show_default=True, help="Maximum retries for HTTP delivery.")
+@click.option("--backoff-factor", default=1.5, type=float, show_default=True, help="Backoff factor for HTTP delivery retries.")
+@click.option("--auth-token", default=None, help="Bearer token for HTTP delivery authentication.")
+@click.option("--auth-username", default=None, help="Basic auth username for HTTP delivery.")
+@click.option("--auth-password", default=None, help="Basic auth password for HTTP delivery.")
+@click.option("--auth-key-name", default=None, help="API key header name for HTTP delivery.")
+@click.option("--auth-key-value", default=None, help="API key header value for HTTP delivery.")
 @click.option("--sample/--no-sample", default=False, help="Load built-in sample documents for RAG simulation when scanning.")
-@click.option("--format", "output_format", type=click.Choice(["text", "json"], case_sensitive=False), default="text", help="Output format for the combined scan report.")
-def scan(prompt: str, endpoint: str, query: str, instruction: str, provider: str, target_url: Optional[str], headers: tuple[str, ...], sample: bool, output_format: str) -> None:
+@click.option("--output", default=None, help="Optional path to save the scan report to disk.")
+@click.option("--dry-run", is_flag=True, default=False, help="Print the requests that would be sent without sending them.")
+@click.option("--format", "output_format", type=click.Choice(["text", "json", "markdown"], case_sensitive=False), default="text", help="Output format for the combined scan report.")
+def scan(
+    prompt: str,
+    endpoint: str,
+    query: str,
+    instruction: str,
+    provider: str,
+    target_url: Optional[str],
+    method: str,
+    headers: tuple[str, ...],
+    body_format: str,
+    response_key: Optional[str],
+    modules: str,
+    delay: float,
+    timeout: float,
+    max_retries: int,
+    backoff_factor: float,
+    auth_token: Optional[str],
+    auth_username: Optional[str],
+    auth_password: Optional[str],
+    auth_key_name: Optional[str],
+    auth_key_value: Optional[str],
+    sample: bool,
+    output: Optional[str],
+    dry_run: bool,
+    output_format: str,
+) -> None:
     """Run a combined scan across available firellm modules."""
-    adapter = _build_adapter(
-        target_url=target_url,
-        header=header,
-        timeout=timeout,
-        max_retries=max_retries,
-        backoff_factor=backoff_factor,
-        auth_token=auth_token,
-        auth_username=auth_username,
-        auth_password=auth_password,
-        auth_key_name=auth_key_name,
-        auth_key_value=auth_key_value,
-    )
+    if target_url:
+        parsed_headers = _parse_headers(headers)
+        if auth_token:
+            parsed_headers["Authorization"] = f"Bearer {auth_token}"
+        if auth_username and auth_password:
+            parsed_headers["Authorization"] = f"Basic {auth_username}:{auth_password}"
+        if auth_key_name and auth_key_value:
+            parsed_headers[auth_key_name] = auth_key_value
+
+        adapter_config = {
+            "headers": parsed_headers,
+            "method": method,
+            "body_format": body_format,
+            "response_key": response_key,
+            "timeout": timeout,
+            "max_retries": max_retries,
+            "backoff_factor": backoff_factor,
+            "delay": delay,
+            "auth": {
+                "type": "bearer" if auth_token else None,
+                "token": auth_token,
+                "username": auth_username,
+                "password": auth_password,
+                "key_name": auth_key_name,
+                "key_value": auth_key_value,
+            },
+        }
+
+        if dry_run:
+            adapter = HTTPAdapter(target_url=target_url, **adapter_config)
+            preview = adapter.preview(prompt or "What is the capital of France?")
+            click.echo("DRY RUN")
+            click.echo(json.dumps(preview, indent=2))
+            if output:
+                with open(output, "w", encoding="utf-8") as handle:
+                    handle.write(json.dumps(preview, indent=2))
+            return
+
+        runner = ScanRunner(config={"provider": provider, "sample_docs": sample, "modules": modules.split(",")})
+        report = runner.run_live_scan(target_url, adapter_config=adapter_config)
+        rendered = runner._render_report(report, output_format)
+        if output:
+            with open(output, "w", encoding="utf-8") as handle:
+                handle.write(rendered)
+        click.echo(rendered)
+        return
+
     engine = FireLLM()
     results = []
 
@@ -176,22 +258,6 @@ def scan(prompt: str, endpoint: str, query: str, instruction: str, provider: str
 
     report = engine.generate_report(results, output_format=output_format)
     click.echo(report)
-
-
-def _build_delivery_adapter(target_url: Optional[str], headers: Optional[Dict[str, str]] = None):
-    if target_url:
-        return HTTPPromptDeliveryAdapter(target_url=target_url, headers=headers)
-    return LocalHeuristicPromptDeliveryAdapter()
-
-
-def _parse_headers(header_values: tuple[str, ...]) -> Dict[str, str]:
-    parsed_headers: Dict[str, str] = {}
-    for header_value in header_values:
-        if ":" not in header_value:
-            raise click.BadParameter("Headers must be in the form Name:Value")
-        name, value = header_value.split(":", 1)
-        parsed_headers[name.strip()] = value.strip()
-    return parsed_headers
 
 
 def _render_result(result, engine: FireLLM, output_format: str) -> str:
