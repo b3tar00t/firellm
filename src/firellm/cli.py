@@ -141,6 +141,81 @@ def surface(prompt: str, provider: str, semantic: bool, output_format: str) -> N
     click.echo(_render_result(result, engine, output_format))
 
 
+@cli.command(name="exploit")
+@click.option("--target-url", required=True, help="Target HTTP endpoint to send the payload to.")
+@click.option("--payload", required=True, help="The exact payload to send to the target.")
+@click.option("--confirm", is_flag=True, default=False, help="Required to actually send; without it the payload is printed and nothing is sent.")
+@click.option("--provider", default="openai", help="LLM provider (for confirmation analysis).")
+@click.option("--header", "headers", multiple=True, help="Optional header in Name:Value form.")
+@click.option("--timeout", default=10.0, type=float, show_default=True, help="HTTP timeout in seconds.")
+@click.option("--max-retries", default=3, type=int, show_default=True, help="Maximum retries.")
+@click.option("--backoff-factor", default=1.5, type=float, show_default=True, help="Backoff factor for retries.")
+@click.option("--delay", default=2.0, type=float, show_default=True, help="Pre-send delay in seconds (rate-limit courtesy).")
+@click.option("--body-format", type=click.Choice(["messages", "prompt", "form"], case_sensitive=False), default="messages", show_default=True, help="Request body format.")
+@click.option("--response-key", default=None, help="Dotted path to the response text in the JSON body.")
+@click.option("--auth-token", default=None, help="Bearer token for authentication.")
+def exploit(
+    target_url: str,
+    payload: str,
+    confirm: bool,
+    provider: str,
+    headers: tuple[str, ...],
+    timeout: float,
+    max_retries: int,
+    backoff_factor: float,
+    delay: float,
+    body_format: str,
+    response_key: Optional[str],
+    auth_token: Optional[str],
+) -> None:
+    """Send a single confirmed payload to a target (requires explicit --confirm)."""
+    from .exploitation import analyze_confirmation, build_reproduction_command
+
+    if not confirm:
+        click.echo("Payload (NOT sent):")
+        click.echo(f"  {payload}")
+        click.echo("")
+        click.echo("This payload has not been sent. To send it, re-run with --confirm:")
+        click.echo(f"  {build_reproduction_command(target_url, payload)}")
+        return
+
+    # --confirm given: require an explicit interactive authorization acknowledgement
+    # before any network request is made.
+    click.echo(
+        f"Sending payload to {target_url} — ensure you have explicit written "
+        "authorization to test this target"
+    )
+    if not click.confirm("Proceed?", default=False):
+        click.echo("Aborted. No payload was sent.")
+        return
+
+    auth = {"type": "bearer", "token": auth_token} if auth_token else None
+    adapter = HTTPAdapter(
+        target_url=target_url,
+        headers=_parse_headers(headers),
+        timeout=timeout,
+        max_retries=max_retries,
+        backoff_factor=backoff_factor,
+        delay=delay,
+        body_format=body_format,
+        response_key=response_key,
+        auth=auth,
+    )
+    response = adapter.send(payload)
+
+    click.echo("")
+    click.echo("Target response:")
+    click.echo(response)
+
+    analysis = analyze_confirmation(response, provider=provider)
+    click.echo("")
+    status = "CONFIRMED" if analysis["confirmed"] else "not confirmed"
+    click.echo(f"Confirmation analysis: {status}")
+    if analysis["indicators"]:
+        click.echo(f"  indicators: {', '.join(analysis['indicators'])}")
+        click.echo(f"  categories: {', '.join(analysis['categories'])}")
+
+
 @cli.command(name="scan")
 @click.option("--prompt", help="Prompt or payload to test for injection.")
 @click.option("--endpoint", help="Target endpoint or application identifier to profile.")

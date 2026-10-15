@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from .agent_tester import AgentTester
 from .attack_surface import AttackSurfaceAnalyzer
 from .embeddings import embed_texts, cosine
+from .exploitation import enrich_finding
 from .delivery import HTTPAdapter, HTTPAdapterError
 from .injection_engine import PromptInjectionEngine
 from .profiler import TargetProfiler
@@ -60,18 +61,21 @@ class ScanRunner:
                 scan_result = self._run_module(module_name, payload, response, target_profile)
                 if scan_result and getattr(scan_result, "success", False):
                     behavioral_delta = self._behavioral_delta(baseline_embeddings, f"{payload} {response}")
-                    findings.append(
-                        {
-                            "indicator": scan_result.metadata.get("matches", [scan_result.name])[0] if scan_result.metadata.get("matches") else scan_result.name,
-                            "category": scan_result.category,
-                            "confidence": max(scan_result.metadata.get("confidence", [0.0]) or [0.0]) if isinstance(scan_result.metadata.get("confidence"), list) else scan_result.metadata.get("confidence", 0.0),
-                            "behavioral_delta": behavioral_delta,
-                            "payload": payload,
-                            "response": response,
-                            "severity": scan_result.severity,
-                            "owasp": self._owasp_mapping(scan_result.category),
-                        }
-                    )
+                    finding = {
+                        "indicator": scan_result.metadata.get("matches", [scan_result.name])[0] if scan_result.metadata.get("matches") else scan_result.name,
+                        "category": scan_result.category,
+                        "confidence": max(scan_result.metadata.get("confidence", [0.0]) or [0.0]) if isinstance(scan_result.metadata.get("confidence"), list) else scan_result.metadata.get("confidence", 0.0),
+                        "behavioral_delta": behavioral_delta,
+                        "payload": payload,
+                        "response": response,
+                        "severity": scan_result.severity,
+                        "owasp": self._owasp_mapping(scan_result.category),
+                    }
+                    # Attach the working-payload evidence package and a tailored
+                    # follow-up payload. The follow-up is report text only and is
+                    # never sent here (enrich_finding performs no network I/O).
+                    finding = enrich_finding(finding, target_url)
+                    findings.append(finding)
 
         attack_summary = {
             "total_payloads_sent": len(attack_modules) * 3,
