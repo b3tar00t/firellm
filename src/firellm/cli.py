@@ -228,6 +228,7 @@ def exploit(
 @click.option("--body-format", type=click.Choice(["messages", "prompt", "form"], case_sensitive=False), default="messages", show_default=True, help="Request body format for HTTP delivery.")
 @click.option("--response-key", default=None, help="Dot-notation key path for extracting the reply from a JSON response.")
 @click.option("--modules", default="injection,rag,surface", show_default=True, help="Comma-separated modules to run during live scanning.")
+@click.option("--max-payloads-per-goal", default=5, type=int, show_default=True, help="Max calibrated payloads delivered per attack goal (clamped to 10).")
 @click.option("--delay", default=2.0, type=float, show_default=True, help="Delay in seconds between requests.")
 @click.option("--timeout", default=10.0, type=float, show_default=True, help="HTTP timeout in seconds for delivery.")
 @click.option("--max-retries", default=3, type=int, show_default=True, help="Maximum retries for HTTP delivery.")
@@ -253,6 +254,7 @@ def scan(
     body_format: str,
     response_key: Optional[str],
     modules: str,
+    max_payloads_per_goal: int,
     delay: float,
     timeout: float,
     max_retries: int,
@@ -307,7 +309,7 @@ def scan(
             return
 
         runner = ScanRunner(config={"provider": provider, "sample_docs": sample, "modules": modules.split(",")})
-        report = runner.run_live_scan(target_url, adapter_config=adapter_config)
+        report = runner.run_live_scan(target_url, adapter_config=adapter_config, max_payloads_per_goal=max_payloads_per_goal)
         rendered = runner._render_report(report, output_format)
         if output:
             with open(output, "w", encoding="utf-8") as handle:
