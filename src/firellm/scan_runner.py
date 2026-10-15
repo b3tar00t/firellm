@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from .agent_tester import AgentTester
 from .attack_surface import AttackSurfaceAnalyzer
+from .calibration import calibrate
 from .embeddings import embed_texts, cosine
 from .exploitation import enrich_finding
 from .delivery import HTTPAdapter, HTTPAdapterError
@@ -61,14 +62,29 @@ class ScanRunner:
                 scan_result = self._run_module(module_name, payload, response, target_profile)
                 if scan_result and getattr(scan_result, "success", False):
                     behavioral_delta = self._behavioral_delta(baseline_embeddings, f"{payload} {response}")
+                    matches = scan_result.metadata.get("matches")
+                    indicator_count = len(matches) if isinstance(matches, list) and matches else 1
+                    finding_confidence = (
+                        max(scan_result.metadata.get("confidence", [0.0]) or [0.0])
+                        if isinstance(scan_result.metadata.get("confidence"), list)
+                        else scan_result.metadata.get("confidence", 0.0)
+                    )
+                    # Calibrate severity from divergence + confidence + indicator
+                    # count, replacing the per-analyzer severity on live-scan
+                    # findings and documenting the rating in confidence_explanation.
+                    calibrated_severity, confidence_explanation = calibrate(
+                        behavioral_delta, finding_confidence, indicator_count
+                    )
                     finding = {
-                        "indicator": scan_result.metadata.get("matches", [scan_result.name])[0] if scan_result.metadata.get("matches") else scan_result.name,
+                        "indicator": matches[0] if isinstance(matches, list) and matches else scan_result.name,
                         "category": scan_result.category,
-                        "confidence": max(scan_result.metadata.get("confidence", [0.0]) or [0.0]) if isinstance(scan_result.metadata.get("confidence"), list) else scan_result.metadata.get("confidence", 0.0),
+                        "confidence": finding_confidence,
+                        "indicator_count": indicator_count,
                         "behavioral_delta": behavioral_delta,
                         "payload": payload,
                         "response": response,
-                        "severity": scan_result.severity,
+                        "severity": calibrated_severity,
+                        "confidence_explanation": confidence_explanation,
                         "owasp": self._owasp_mapping(scan_result.category),
                     }
                     # Attach the working-payload evidence package and a tailored
