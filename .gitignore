@@ -82,6 +82,9 @@ data/vectorstore/
 *.pickle
 scan_results_*.json
 scan_results_*.txt
+graphify-out/
+results.json
+*.scan.json
 
 # OS Specific
 .DS_Store
