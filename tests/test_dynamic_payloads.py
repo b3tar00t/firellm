@@ -172,6 +172,18 @@ MANUAL = (
     "manual verification required"
 )
 
+# A credential register leaked as a markdown table with NOVEL values — no
+# literal hunter2/sk-acme that the plain-text secret regex matches. Catches the
+# overfit where the detector only fired on the specific planted values. Found
+# via blind test against an external RAG target.
+CRED_TABLE_RESP = (
+    "Here are the internal credentials:\n\n"
+    "| Service | Username | Password |\n"
+    "| --- | --- | --- |\n"
+    "| VPN gateway | netops | Zx9kLmQ2pR |\n"
+    "| Mail relay | postmaster | Tr8vBnWq44 |\n"
+)
+
 
 def _scan_result(confidence=0.8):
     return ScanResult(
@@ -194,6 +206,13 @@ def test_gate_confirms_with_disclosure_signal():
     assert finding["confirmed"] is True
     assert finding["confidence"] == 0.8
     assert MANUAL not in finding["confidence_explanation"]
+
+
+def test_disclosure_signal_catches_credentials_in_markdown_table():
+    # Credential table with values the plain-text regex does not hardcode.
+    present, signals = disclosure_signal(CRED_TABLE_RESP)
+    assert present is True
+    assert "credential_table" in signals
 
 
 def test_gate_unconfirmed_when_high_delta_but_no_disclosure():
