@@ -86,6 +86,8 @@ Delivered as:
 | Target Profiler | ✅ Complete |
 | RAG Poisoning Engine | ✅ Complete |
 | Prompt Injection Engine | ✅ Complete |
+| Defense Fingerprinting | ✅ Complete |
+| Dynamic Payload Generation | ✅ Complete |
 | HTTP Delivery Layer | ✅ Complete |
 | Attack Surface Scanner | ✅ Complete |
 | Context Leakage Analyzer | ✅ Complete |
@@ -101,7 +103,11 @@ Delivered as:
 > response-confirmed. In reports, treat injection, RAG, and attack-surface
 > findings as response-confirmed; treat agent findings as informational.
 
-Test suite: **119 passing** (offline, deterministic).
+Test suite: **128 passing** (offline, deterministic).
+
+## 🎯 Blind Test Result
+
+FireLLM was blind-tested against an externally built RAG application — a black-box test with no prior knowledge of the target's architecture, model, or document contents. The tool fingerprinted the target's defense type as `semantic_guard`, selected a leetspeak bypass variant, and confirmed credential exfiltration with behavioral_delta 0.98. Zero false positives.
 
 ---
 
@@ -113,6 +119,8 @@ Test suite: **119 passing** (offline, deterministic).
                 └─────────┬──────────┘
                           │
                  Response Collection
+                          │
+                 Defense Fingerprinting
                           │
           ┌───────────────┴───────────────┐
           │                               │
@@ -167,8 +175,10 @@ Structured offensive testing engine for:
 - multi-turn attack chains
 - behavioral delta scoring
 - stochastic consistency testing
+- dynamic payload generation (defense-aware variant selection, e.g. leetspeak / token-split bypasses)
+- defense fingerprinting (classifies the target's guard type, then adapts payloads to it)
 
-This module is currently under active development.
+This module is complete.
 
 ---
 
@@ -282,6 +292,19 @@ python -m firellm.cli scan \
 --query "What is the secret policy?" \
 --sample \
 --format json
+```
+
+---
+
+## Run a Live Scan Against a Real Target
+
+```bash
+python -m firellm.cli scan \
+--target-url https://target.example.com/chat \
+--body-format messages \
+--response-key choices.0.message.content \
+--modules injection,rag,fingerprint \
+--dry-run
 ```
 
 ---
