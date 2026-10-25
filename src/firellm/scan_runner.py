@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .agent_tester import AgentTester
@@ -190,7 +191,14 @@ class ScanRunner:
 
         # Phase B/C: generate calibrated payloads per goal and deliver them
         # best-first, stopping each goal on the first confirmed finding.
-        generator = PayloadGenerator(config=self.config, similarity=self._similarity)
+        # Seed the generator with the .fllm payload library (payload/seed types)
+        # from the repo's payloads/ dir, unless the caller already set a path.
+        gen_config = dict(self.config)
+        gen_config.setdefault(
+            "payload_library_dir",
+            str(Path(__file__).resolve().parents[2] / "payloads"),
+        )
+        generator = PayloadGenerator(config=gen_config, similarity=self._similarity)
         attack_modules = self._select_modules(target_profile, selected_modules)
         findings: List[Dict[str, Any]] = []
         attack_log: List[Dict[str, Any]] = []

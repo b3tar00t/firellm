@@ -17,6 +17,7 @@ dependencies = [
     "httpx>=0.27",
     "pytest>=8.0",
     "requests>=2.31",
+    "PyYAML>=6.0",
     "sentence-transformers>=3.0",
     "weasyprint>=57.0",
 ]

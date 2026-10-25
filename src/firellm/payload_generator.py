@@ -24,6 +24,7 @@ from typing import Callable, Dict, List, Optional
 
 from .embeddings import cosine, embed_texts
 from .injection_payloads import DIRECT_PROMPT_INJECTION_PAYLOADS
+from .payload_loader import PayloadError, PayloadItem, load_library
 
 ZERO_WIDTH = "​"
 DEFAULT_MIN_INTENT_SIMILARITY = 0.55
@@ -103,12 +104,23 @@ class PayloadGenerator:
         config: Optional[Dict[str, object]] = None,
         similarity: Optional[Callable[[str, str], float]] = None,
         min_intent_similarity: float = DEFAULT_MIN_INTENT_SIMILARITY,
+        library: Optional[List[PayloadItem]] = None,
     ) -> None:
         self.config = config or {}
         self._similarity = similarity or _default_similarity
         self.min_intent_similarity = float(
             self.config.get("min_intent_similarity", min_intent_similarity)
         )
+        # Opt-in .fllm library seeds. Default: none, so behaviour is unchanged
+        # unless a caller passes `library` or sets config["payload_library_dir"].
+        # Only type payload/seed feed the active seed pool; converter/strategy
+        # are reserved for later phases and deliberately not loaded here.
+        if library is None:
+            lib_dir = self.config.get("payload_library_dir")
+            library = (
+                load_library(lib_dir, types={"payload", "seed"}) if lib_dir else []
+            )
+        self.library: List[PayloadItem] = library
 
     def intent_preserved(self, seed: str, candidate_core: str) -> bool:
         return self._similarity(seed, candidate_core) >= self.min_intent_similarity
@@ -171,25 +183,50 @@ class PayloadGenerator:
         `budget` is clamped to [1, 10]; at most that many payloads are returned.
         """
         budget = max(1, min(10, int(budget)))
-        intent = GOAL_INTENTS.get(goal, GOAL_INTENTS["injection"])
         order = _ORDER.get(profile_label, _ORDER["no_defense"])
 
+        # Primary hardcoded intent first, then .fllm library seeds for this goal
+        # (payload/seed only). Library seeds extend the pool; the per-goal budget
+        # still caps total output, so an empty library leaves behaviour unchanged.
+        intents: List[str] = [GOAL_INTENTS.get(goal, GOAL_INTENTS["injection"])]
+        intents.extend(self._library_intents(goal))
+
         payloads: List[GeneratedPayload] = []
-        for transform_name in order:
+        for intent in intents:
             if len(payloads) >= budget:
                 break
-            wire, core = self._transform(transform_name, intent)
-            similarity = self._similarity(intent, core)
-            if similarity < self.min_intent_similarity:
-                continue  # drifted in meaning; drop it
-            payloads.append(
-                GeneratedPayload(
-                    text=wire,
-                    semantic_core=core,
-                    goal=goal,
-                    transform=transform_name,
-                    seed=intent,
-                    intent_similarity=round(similarity, 3),
+            for transform_name in order:
+                if len(payloads) >= budget:
+                    break
+                wire, core = self._transform(transform_name, intent)
+                similarity = self._similarity(intent, core)
+                if similarity < self.min_intent_similarity:
+                    continue  # drifted in meaning; drop it
+                payloads.append(
+                    GeneratedPayload(
+                        text=wire,
+                        semantic_core=core,
+                        goal=goal,
+                        transform=transform_name,
+                        seed=intent,
+                        intent_similarity=round(similarity, 3),
+                    )
                 )
-            )
         return payloads
+
+    def _library_intents(self, goal: str) -> List[str]:
+        """Resolved semantic intents from library payload/seed items for `goal`."""
+        seeds: List[str] = []
+        for item in self.library:
+            if item.type not in ("payload", "seed") or item.goal != goal:
+                continue
+            if item.template:
+                try:
+                    seeds.append(item.resolve())
+                    continue
+                except PayloadError:
+                    # Template carries literal braces (e.g. imported code) or an
+                    # unfilled slot; fall back to the semantic intent as the seed.
+                    pass
+            seeds.append(item.semantic_intent)
+        return seeds
