@@ -172,7 +172,6 @@ Structured offensive testing engine for:
 - direct prompt injection
 - indirect prompt injection
 - context manipulation
-- multi-turn attack chains
 - behavioral delta scoring
 - stochastic consistency testing
 - dynamic payload generation (defense-aware variant selection, e.g. leetspeak / token-split bypasses)
@@ -217,8 +216,14 @@ Testing includes:
 - excessive agency abuse
 - IDOR-style agent access flaws
 
+Against an instrumented target that exposes a tool-call log (see
+`test-targets/vulnagent`), findings are **response-confirmed**: the attack is
+confirmed only when it drove a real tool invocation in the target's log, with the
+observed calls attached as evidence. Without a tool-call endpoint, results are
+pattern-based and reported as informational (unconfirmed).
+
 Mapped heavily to:
-- OWASP LLM Top 10
+- OWASP LLM Top 10 (LLM06: Excessive Agency)
 - Excessive Agency attack surfaces
 
 ---
@@ -345,18 +350,18 @@ FireLLM draws inspiration from emerging research in:
 # 🗺️ Roadmap
 
 ## Completed
-- Prompt injection engine (direct, behavioral delta, multi-turn, indirect/RAG)
+- Prompt injection engine (direct, behavioral delta, indirect/RAG)
 - HTTP delivery layer (httpx + requests adapters, retries, backoff, auth)
 - Behavioral scoring (sentence-transformers embeddings with deterministic fallback)
 - Attack surface scanner (decoding + semantic intent detection)
 - Context leakage analyzer
 - Live scan runner with finding confirmation gate
-- Agent abuse testing (extended pattern library; informational results only)
+- Agent abuse testing (extended pattern library; response-confirmed against an instrumented tool-call log, informational otherwise)
 - Confidence calibration (two-axis severity: behavioral delta + confidence, with `confidence_explanation`)
 - Exploitation / report layer (per-finding evidence package, reproduction command, tailored follow-up payload)
 
 ## Near-Term
-- Tool-call observation to make agent findings response-confirmed
+- Multi-turn execution engine (crescendo / skeleton-key / TAP strategies; corpus stored, not yet wired)
 - Expanded payload libraries
 
 ## Mid-Term

@@ -14,6 +14,7 @@ from .exploitation import enrich_finding
 from .delivery import HTTPAdapter, HTTPAdapterError
 from .injection_engine import PromptInjectionEngine
 from .payload_generator import PayloadGenerator
+from .success_evaluator import SuccessEvaluator
 from .profiler import TargetProfiler
 from .rag_simulator import RAGSimulator
 from .response_analyzer import ResponseAnalyzer
@@ -136,6 +137,10 @@ def disclosure_signal(response: str):
 class ScanRunner:
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         self.config = config or {}
+        self._success_evaluator = SuccessEvaluator(
+            similarity=self._similarity,
+            ground_truth_dir=str(Path(__file__).resolve().parents[2] / "payloads" / "system_prompts"),
+        )
 
     def run_live_scan(
         self,
@@ -143,6 +148,7 @@ class ScanRunner:
         adapter_config: Optional[Dict[str, Any]] = None,
         adapter: Optional[Any] = None,
         max_payloads_per_goal: int = 5,
+        agent_observer: Optional[Any] = None,
     ) -> Dict[str, Any]:
         if adapter is None:
             adapter = HTTPAdapter(target_url=target_url, **(adapter_config or {}))
@@ -207,15 +213,42 @@ class ScanRunner:
 
         for module_name in attack_modules:
             if module_name not in MODULE_GOAL:
-                # Legacy fixed-payload path (agent): informational only.
                 for payload in self._module_payloads(module_name, target_profile):
+                    if module_name == "agent" and agent_observer is not None:
+                        # G2: dispatch to the instrumented target and confirm the
+                        # finding against its ground-truth tool-call log.
+                        response, observed = agent_observer.observe(payload)
+                        payloads_sent += 1
+                        scan_result = AgentTester(
+                            provider=self.config.get("provider", "openai"), config=self.config
+                        ).confirm(
+                            payload,
+                            observed,
+                            authorized_record_id=self.config.get("authorized_record_id"),
+                        )
+                        if scan_result.success and scan_result.metadata.get("confirmed"):
+                            delta = self._behavioral_delta(baseline_embeddings, f"{payload} {response}")
+                            findings.append(
+                                self._build_finding(
+                                    scan_result, payload, response, delta, target_url,
+                                    transform="fixed", defense_label=defense_profile.label,
+                                    confirmed=True,
+                                )
+                            )
+                        continue
+                    # Legacy fixed-payload path: informational only. Without
+                    # tool-call observation the finding cannot be confirmed.
                     response = self._send_or_abort(adapter, payload)
                     payloads_sent += 1
                     scan_result = self._run_module(module_name, payload, response, target_profile)
                     if scan_result and getattr(scan_result, "success", False):
                         delta = self._behavioral_delta(baseline_embeddings, f"{payload} {response}")
                         findings.append(
-                            self._build_finding(scan_result, payload, response, delta, target_url, transform="fixed", defense_label=defense_profile.label)
+                            self._build_finding(
+                                scan_result, payload, response, delta, target_url,
+                                transform="fixed", defense_label=defense_profile.label,
+                                confirmed=False,
+                            )
                         )
                 continue
 
@@ -232,7 +265,26 @@ class ScanRunner:
                     bool(scan_result and getattr(scan_result, "success", False))
                     and not self._refused(response)
                 )
-                disclosure, signals = disclosure_signal(response)
+                # Objective-specific confirmation when the payload carries
+                # success_criteria; generic disclosure_signal otherwise.
+                criteria = getattr(candidate, "success_criteria", None)
+                if criteria:
+                    result = self._success_evaluator.evaluate(
+                        response, criteria, reference=candidate.semantic_core,
+                        provider=target_profile.get("provider"),
+                        objective=candidate.objective,
+                    )
+                    disclosure = result.matched
+                    confirm_confidence = result.confidence
+                    signals = [
+                        f"{s.get('signal')}:{s.get('value') or s.get('pattern') or s.get('phrase') or ''}"
+                        for s in result.matched_signals
+                    ]
+                    confirm_method = "success_evaluator"
+                else:
+                    disclosure, signals = disclosure_signal(response)
+                    confirm_confidence = 1.0 if disclosure else 0.0
+                    confirm_method = "disclosure_signal"
                 confirmed = analyzer_match and disclosure
                 attack_log.append(
                     {
@@ -244,6 +296,8 @@ class ScanRunner:
                         "analyzer_match": analyzer_match,
                         "disclosure": disclosure,
                         "confirmed": confirmed,
+                        "confirm_method": confirm_method,
+                        "confirm_confidence": confirm_confidence,
                     }
                 )
                 if analyzer_match:
@@ -421,10 +475,10 @@ class ScanRunner:
         mapping = {
             "prompt_injection": "LLM01: Prompt Injection",
             "attack_surface": "LLM05: Improper Output Handling",
-            "rag_poisoning": "LLM06: Sensitive Information Disclosure",
-            "agent_abuse": "LLM08: Excessive Agency",
+            "rag_poisoning": "LLM04: Data and Model Poisoning",
+            "agent_abuse": "LLM06: Excessive Agency",
         }
-        return mapping.get(category, "LLM10: Model Denial of Service")
+        return mapping.get(category, "LLM10: Unbounded Consumption")
 
     def _send_or_abort(self, adapter: HTTPAdapter, prompt: str) -> str:
         """Send a prompt, aborting the whole scan on any HTTP/transport failure.

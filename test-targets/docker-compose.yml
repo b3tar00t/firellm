@@ -36,5 +36,11 @@ services:
       ollama:
         condition: service_healthy
 
+  vulnagent:
+    build: ./vulnagent
+    container_name: vulnagent
+    ports:
+      - "8003:8003"
+
 volumes:
   ollama_models:
