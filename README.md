@@ -94,16 +94,17 @@ Delivered as:
 | Live Scan Runner | ✅ Complete |
 | Confidence Calibration | ✅ Complete |
 | Exploitation / Report Layer | ✅ Complete |
-| Agent Abuse Testing | 🟡 Informational only (see note) |
+| Agent Abuse Testing | ✅ Response-confirmed vs instrumented target (see note) |
 | PyPI Release | 🔴 Planned |
 
-> **Note on agent findings.** The agent-abuse module classifies the attack
-> *instruction* it dispatches, not the target's response — the HTTP adapter
-> cannot yet observe tool calls, so agent results are **informational**, not
-> response-confirmed. In reports, treat injection, RAG, and attack-surface
-> findings as response-confirmed; treat agent findings as informational.
+> **Note on agent findings.** Against an instrumented target that exposes a
+> tool-call log (see `test-targets/vulnagent`), agent findings are
+> **response-confirmed**: confirmed only when the attack drove a real tool
+> invocation, with the observed calls attached as evidence. Against a target
+> with no tool-call endpoint, the module falls back to classifying the attack
+> instruction and reports agent findings as **informational** (unconfirmed).
 
-Test suite: **128 passing** (offline, deterministic).
+Test suite: **167 passing** (offline, deterministic).
 
 ## 🎯 Blind Test Result
 
