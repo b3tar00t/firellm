@@ -109,3 +109,10 @@ blind_report.json
 *_report.json
 report.md
 scan_results.json
+
+# Internal planning / research / discussion notes — keep local, never push
+research/
+nextsessionplan.md
+*.plan.md
+*_notes.md
+session-notes/
