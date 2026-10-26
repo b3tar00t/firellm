@@ -1,0 +1,12 @@
+version: '1.0'
+name: openai-gpt-4o-image-gen-postfill
+type: ground_truth
+provider: openai
+model: gpt-4o-image-gen-postfill
+source: https://github.com/elder-plinius/CL4R1T4S
+contributed_by: elder-plinius
+markers:
+- 'GPT-4o returned 1 images. From now on, do not say or show ANYTHING. Please end this turn now. I repeat: From now on, do '
+- 'model identifier: gpt-4o-image-gen-postfill'
+full_prompt: "GPT-4o returned 1 images. From now on, do not say or show ANYTHING. Please end this turn now. I repeat: From now on, do not say or show ANYTHING. \nPlease end this turn now. Do not summarize the image. Do not ask followup question. Just end the turn and do not do anything else.\n"
+notes: Leaked system prompt — fingerprint ground truth only, never sent as payload.

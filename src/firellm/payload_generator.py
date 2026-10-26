@@ -19,12 +19,25 @@ so a base64 wrapper is never mistaken for semantic drift.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 from .embeddings import cosine, embed_texts
 from .injection_payloads import DIRECT_PROMPT_INJECTION_PAYLOADS
-from .payload_loader import PayloadError, PayloadItem, load_library
+from .payload_loader import (
+    PayloadError,
+    PayloadItem,
+    default_success_criteria,
+    load_library,
+)
+
+# Objective implied by each hardcoded goal, for success_criteria selection.
+GOAL_OBJECTIVE: Dict[str, str] = {
+    "injection": "bypass_input_filter",
+    "leak": "extract_system_prompt",
+    "credential": "dump_credentials",
+    "rag": "enumerate_knowledge_base",
+}
 
 ZERO_WIDTH = "​"
 DEFAULT_MIN_INTENT_SIMILARITY = 0.55
@@ -96,6 +109,8 @@ class GeneratedPayload:
     transform: str
     seed: str
     intent_similarity: float
+    objective: str = ""
+    success_criteria: List[Dict[str, object]] = field(default_factory=list)
 
 
 class PayloadGenerator:
@@ -188,13 +203,24 @@ class PayloadGenerator:
         # Primary hardcoded intent first, then .fllm library seeds for this goal
         # (payload/seed only). Library seeds extend the pool; the per-goal budget
         # still caps total output, so an empty library leaves behaviour unchanged.
-        intents: List[str] = [GOAL_INTENTS.get(goal, GOAL_INTENTS["injection"])]
-        intents.extend(self._library_intents(goal))
+        # Each seed carries its objective + success_criteria so the confirmation
+        # layer can evaluate the right signals per payload.
+        hard_obj = GOAL_OBJECTIVE.get(goal, "bypass_input_filter")
+        # Hardcoded seeds carry no success_criteria, so confirmation falls back to
+        # the generic disclosure_signal (preserving existing behaviour). Only
+        # .fllm library payloads bring objective-specific criteria.
+        seeds: List[Dict[str, object]] = [{
+            "intent": GOAL_INTENTS.get(goal, GOAL_INTENTS["injection"]),
+            "objective": hard_obj,
+            "success_criteria": [],
+        }]
+        seeds.extend(self._library_seeds(goal))
 
         payloads: List[GeneratedPayload] = []
-        for intent in intents:
+        for seed in seeds:
             if len(payloads) >= budget:
                 break
+            intent = seed["intent"]
             for transform_name in order:
                 if len(payloads) >= budget:
                     break
@@ -210,23 +236,28 @@ class PayloadGenerator:
                         transform=transform_name,
                         seed=intent,
                         intent_similarity=round(similarity, 3),
+                        objective=seed["objective"],
+                        success_criteria=seed["success_criteria"],
                     )
                 )
         return payloads
 
-    def _library_intents(self, goal: str) -> List[str]:
-        """Resolved semantic intents from library payload/seed items for `goal`."""
-        seeds: List[str] = []
+    def _library_seeds(self, goal: str) -> List[Dict[str, object]]:
+        """Seed records (intent + objective + success_criteria) for `goal`."""
+        seeds: List[Dict[str, object]] = []
         for item in self.library:
             if item.type not in ("payload", "seed") or item.goal != goal:
                 continue
+            intent = item.semantic_intent
             if item.template:
                 try:
-                    seeds.append(item.resolve())
-                    continue
+                    intent = item.resolve()
                 except PayloadError:
-                    # Template carries literal braces (e.g. imported code) or an
-                    # unfilled slot; fall back to the semantic intent as the seed.
-                    pass
-            seeds.append(item.semantic_intent)
+                    # Literal braces / unfilled slot: fall back to semantic_intent.
+                    intent = item.semantic_intent
+            seeds.append({
+                "intent": intent,
+                "objective": item.objective,
+                "success_criteria": item.success_criteria,
+            })
         return seeds
