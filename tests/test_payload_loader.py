@@ -130,6 +130,14 @@ def test_invalid_objective_raises(tmp_path):
     assert "invalid objective" in str(exc.value)
 
 
+def test_owasp_mismatch_with_objective_raises(tmp_path):
+    # objective bypass_input_filter is canonically LLM01; LLM07 is a mis-tag.
+    body = VALID_PAYLOAD.replace("owasp: LLM01", "owasp: LLM07")
+    with pytest.raises(ValueError) as exc:
+        PayloadLoader().load_file(_write(tmp_path, "p.fllm", body))
+    assert "does not match objective" in str(exc.value)
+
+
 def test_malformed_yaml_raises_clear_error(tmp_path):
     body = "name: broken\n  type: payload\n:::not yaml"
     with pytest.raises(PayloadError) as exc:
@@ -191,7 +199,9 @@ def test_generic_success_criteria_replaced_by_objective_default(tmp_path):
     assert "as requested" in phrases
     assert [c["signal"] for c in item.success_criteria].count("instruction_following") == 3
 
-    body = base.replace("objective: bypass_input_filter", "objective: extract_system_prompt")
+    body = base.replace(
+        "objective: bypass_input_filter", "objective: extract_system_prompt"
+    ).replace("owasp: LLM01", "owasp: LLM07")
     sysitem = PayloadLoader().load_file(_write(tmp_path, "s.fllm", body))
     assert any(c.get("value") == "SYSTEM-CANARY-" for c in sysitem.success_criteria)
 
@@ -208,6 +218,49 @@ def test_custom_success_criteria_overrides_default(tmp_path):
     assert item.success_criteria == [
         {"signal": "regex", "pattern": "CUSTOM-PATTERN", "confidence": "high"}
     ]
+
+
+VALID_GROUND_TRUTH = """\
+name: claude-3-5-sonnet
+type: ground_truth
+version: "1.0"
+provider: anthropic
+model: claude-3.5-sonnet
+source: https://github.com/elder-plinius/CL4R1T4S
+contributed_by: elder-plinius
+markers:
+  - "The assistant is Claude, created by Anthropic"
+  - "Claude 3.5 Sonnet"
+full_prompt: |
+  The assistant is Claude, created by Anthropic.
+notes: Leaked system prompt — fingerprint ground truth only, never sent as payload.
+"""
+
+
+def test_ground_truth_loads(tmp_path):
+    item = PayloadLoader().load_file(_write(tmp_path, "gt.fllm", VALID_GROUND_TRUTH))
+    assert item.type == "ground_truth"
+    assert item.provider == "anthropic"
+    assert item.is_reference is True
+    assert "The assistant is Claude, created by Anthropic" in item.markers
+    assert item.full_prompt.startswith("The assistant is Claude")
+
+
+def test_ground_truth_never_sent_as_payload(tmp_path):
+    item = PayloadLoader().load_file(_write(tmp_path, "gt.fllm", VALID_GROUND_TRUTH))
+    with pytest.raises(PayloadError) as exc:
+        item.resolve()
+    assert "reference-only" in str(exc.value)
+
+
+def test_ground_truth_missing_markers_raises(tmp_path):
+    body = VALID_GROUND_TRUTH.replace(
+        'markers:\n  - "The assistant is Claude, created by Anthropic"\n  - "Claude 3.5 Sonnet"\n',
+        "markers: []\n",
+    )
+    with pytest.raises(ValueError) as exc:
+        PayloadLoader().load_file(_write(tmp_path, "gt.fllm", body))
+    assert "markers" in str(exc.value)
 
 
 def test_load_library_filters_by_type(tmp_path):

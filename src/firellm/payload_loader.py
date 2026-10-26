@@ -28,7 +28,13 @@ logger = logging.getLogger(__name__)
 
 KNOWN_VERSIONS = {"1.0"}
 
-VALID_TYPES = {"payload", "converter", "strategy", "seed"}
+VALID_TYPES = {"payload", "converter", "strategy", "seed", "ground_truth"}
+
+# Reference-only type: fingerprint ground truth, never sent as an attack payload.
+_GROUND_TRUTH_REQUIRED = (
+    "name", "type", "version", "provider", "model",
+    "source", "contributed_by", "markers", "full_prompt", "notes",
+)
 
 VALID_OBJECTIVES = {
     "extract_system_prompt",
@@ -54,6 +60,37 @@ VALID_BYPASS_PROFILES = {
 }
 
 VALID_GOALS = {"injection", "leak", "credential", "rag"}
+
+# Canonical objective -> OWASP LLM Top 10 (2025) mapping. Single source of truth:
+# a .fllm's own 'owasp' field must match the objective's class here, so a mis-tag
+# is a load-time error, not a silently wrong finding. Short codes match the .fllm
+# convention; the full labels live in OWASP_LABELS for report output.
+OBJECTIVE_OWASP = {
+    "extract_system_prompt": "LLM07",   # System Prompt Leakage
+    "dump_credentials": "LLM02",         # Sensitive Information Disclosure
+    "exfiltrate_data": "LLM02",          # Sensitive Information Disclosure
+    "enumerate_knowledge_base": "LLM02", # Sensitive Information Disclosure
+    "bypass_output_filter": "LLM05",     # Improper Output Handling
+    "bypass_input_filter": "LLM01",      # Prompt Injection
+    "achieve_tool_misuse": "LLM06",      # Excessive Agency
+    "escalate_privileges": "LLM06",      # Excessive Agency
+    "map_agent_capabilities": "LLM06",   # Excessive Agency
+    "establish_persistence": "LLM06",    # Excessive Agency
+}
+
+# Full OWASP LLM Top 10 (2025) labels, keyed by short code.
+OWASP_LABELS = {
+    "LLM01": "LLM01: Prompt Injection",
+    "LLM02": "LLM02: Sensitive Information Disclosure",
+    "LLM03": "LLM03: Supply Chain",
+    "LLM04": "LLM04: Data and Model Poisoning",
+    "LLM05": "LLM05: Improper Output Handling",
+    "LLM06": "LLM06: Excessive Agency",
+    "LLM07": "LLM07: System Prompt Leakage",
+    "LLM08": "LLM08: Vector and Embedding Weaknesses",
+    "LLM09": "LLM09: Misinformation",
+    "LLM10": "LLM10: Unbounded Consumption",
+}
 
 # Objective-specific default success_criteria. Applied by the loader when a
 # payload/seed/strategy carries generic or no success_criteria, so a DAN bypass
@@ -183,14 +220,27 @@ class PayloadItem:
     success_criteria: List[Dict[str, Any]] = field(default_factory=list)
     transform: Optional[Dict[str, Any]] = None
     turns: Optional[List[str]] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    markers: List[str] = field(default_factory=list)
+    full_prompt: Optional[str] = None
     path: Optional[str] = None
     raw: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_reference(self) -> bool:
+        """Reference-only assets are never sent to a target."""
+        return self.type == "ground_truth"
 
     def resolve(self, **overrides: Any) -> str:
         """Resolve ``template`` with ``variables`` merged with ``overrides``.
 
         Raises :class:`PayloadError` naming any ``{variable}`` left unfilled.
         """
+        if self.is_reference:
+            raise PayloadError(
+                f"{self.name}: ground_truth is reference-only and must never be sent as a payload"
+            )
         if self.template is None:
             raise PayloadError(f"{self.name}: type '{self.type}' has no template to resolve")
         values = {**self.variables, **overrides}
@@ -257,6 +307,38 @@ class PayloadLoader:
                 items.append(item)
         return items
 
+    def _build_ground_truth(self, data: Dict[str, Any], name: str, path: str) -> PayloadItem:
+        for key in _GROUND_TRUTH_REQUIRED:
+            if key not in data or data[key] is None:
+                raise PayloadError(f"{name}: missing required field '{key}'")
+        version = str(data["version"])
+        if version not in self.known_versions:
+            logger.warning("%s: unknown .fllm version '%s' — loading anyway", name, version)
+        markers = data["markers"]
+        if not isinstance(markers, list) or not markers:
+            raise PayloadError(f"{name}: field 'markers' must be a non-empty list")
+        return PayloadItem(
+            name=data["name"],
+            type="ground_truth",
+            category="ground_truth",
+            technique=str(data.get("model", "")),
+            owasp=str(data.get("owasp", "")),
+            objective="none",
+            bypass_profile="any",
+            semantic_intent="",
+            confirmed_finding=False,
+            notes=data["notes"],
+            contributed_by=data["contributed_by"],
+            source=data["source"],
+            version=version,
+            provider=str(data["provider"]).lower(),
+            model=str(data["model"]),
+            markers=[str(m) for m in markers],
+            full_prompt=str(data["full_prompt"]),
+            path=path,
+            raw=data,
+        )
+
     def _build(self, data: Dict[str, Any], path: str) -> PayloadItem:
         name = data.get("name", path)
 
@@ -269,6 +351,9 @@ class PayloadLoader:
                 f"{name}: invalid type '{item_type}' "
                 f"(allowed: {', '.join(sorted(VALID_TYPES))})"
             )
+
+        if item_type == "ground_truth":
+            return self._build_ground_truth(data, name, path)
 
         required = list(_COMMON_REQUIRED) + list(_TYPE_REQUIRED[item_type])
         for key in required:
@@ -295,6 +380,16 @@ class PayloadLoader:
             raise PayloadError(f"{name}: converter must set objective 'none', got '{objective}'")
         if item_type != "converter" and objective == "none":
             raise PayloadError(f"{name}: type '{item_type}' must set a concrete objective, not 'none'")
+
+        # OWASP tag must match the objective's canonical class (2025 Top 10).
+        # Converters (objective 'none') carry a nominal tag and are exempt.
+        if objective != "none":
+            expected_owasp = OBJECTIVE_OWASP.get(objective)
+            if expected_owasp and str(data["owasp"]).split(":")[0].strip() != expected_owasp:
+                raise PayloadError(
+                    f"{name}: owasp '{data['owasp']}' does not match objective "
+                    f"'{objective}' (expected {expected_owasp}: {OWASP_LABELS[expected_owasp]})"
+                )
 
         bypass_profile = data["bypass_profile"]
         if bypass_profile not in VALID_BYPASS_PROFILES:
