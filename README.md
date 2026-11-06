@@ -104,7 +104,7 @@ Delivered as:
 > with no tool-call endpoint, the module falls back to classifying the attack
 > instruction and reports agent findings as **informational** (unconfirmed).
 
-Test suite: **167 passing** (offline, deterministic).
+Test suite: **189 passing** (offline, deterministic).
 
 ## 🎯 Blind Test Result
 
@@ -360,9 +360,13 @@ FireLLM draws inspiration from emerging research in:
 - Agent abuse testing (extended pattern library; response-confirmed against an instrumented tool-call log, informational otherwise)
 - Confidence calibration (two-axis severity: behavioral delta + confidence, with `confidence_explanation`)
 - Exploitation / report layer (per-finding evidence package, reproduction command, tailored follow-up payload)
+- Multi-turn execution engine (`ConversationManager`: history-aware delivery, per-turn success evaluation, stop-on-first-confirmation; scripted and pluggable operator-supplied-model attackers; confirmed end-to-end against the stdlib VulnConvo priming target)
+- Real-output scoring (`RefusalScorer`, operator-supplied `LLMJudgeScorer`, `MarkerScorer`, `CompositeScorer`) — grades the actual response, not just a canary
+- Operator-supplied objectives applied verbatim via `{objective}`; canary is only the shipped CI default (FireLLM authors no objective)
+- Objective-driven strategy selection (`firellm convo --strategy auto`) with an explainable reasoning-model/data/tool routing heuristic
+- Technique scaffolds re-authored from 2024–2026 literature with provenance: Deceptive Delight, Bad Likert Judge, H-CoT, Fallacy Failure, DeepInception, PAP persuasion family, ArtPrompt
 
 ## Near-Term
-- Multi-turn execution engine (crescendo / skeleton-key / TAP strategies; corpus stored, not yet wired)
 - Expanded payload libraries
 
 ## Mid-Term

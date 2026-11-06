@@ -343,5 +343,81 @@ def _render_result(result, engine: FireLLM, output_format: str) -> str:
     return result.details
 
 
+@cli.command(name="convo")
+@click.option("--objective", required=True,
+              help="Operator-supplied objective, applied verbatim. FireLLM authors no objective.")
+@click.option("--target", "target_url", required=True, help="Target chat endpoint (POST messages).")
+@click.option("--strategy", default="auto",
+              help="Strategy/technique name, or 'auto' to select by objective.")
+@click.option("--payloads-dir", default="payloads", show_default=True, help="Payload library root.")
+@click.option("--provider", default=None, help="Detected provider (routes strategy selection, e.g. deepseek-r1).")
+@click.option("--max-turns", default=5, type=int, show_default=True)
+@click.option("--header", "headers", multiple=True, help="HTTP header Name:Value.")
+@click.option("--response-key", default="response",
+              help="Dot-path to the reply text in the JSON response.")
+@click.option("--authorized", is_flag=True, default=False,
+              help="Required for non-loopback targets: confirms you are permitted to test this system.")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"], case_sensitive=False), default="text")
+def convo(objective, target_url, strategy, payloads_dir, provider, max_turns,
+          headers, response_key, authorized, output_format):
+    """Run a multi-turn strategy against a target, grading the real response.
+
+    The objective is applied verbatim; a canary default lives only in the payload
+    files. Non-loopback targets require --authorized (loopback runs freely).
+    """
+    from .conversation import ConversationManager, ScriptedAttacker, require_authorization
+    from .delivery import HTTPAdapter
+    from .payload_loader import PayloadLoader
+    from .scoring import CompositeScorer, MarkerScorer, RefusalScorer
+    from .strategy_selector import select_strategies
+
+    # Gate before any traffic.
+    require_authorization(target_url, authorized=authorized)
+
+    loader = PayloadLoader()
+    items = loader.load_dir(payloads_dir)
+    runnable = [i for i in items if (i.turns or i.template)]
+
+    if strategy == "auto":
+        ranked = select_strategies(objective, runnable, provider=provider)
+        if not ranked:
+            raise click.UsageError("No runnable strategies found in the payload library.")
+        chosen = ranked[0].item
+        selection_note = f"auto-selected '{chosen.technique}' (score {ranked[0].score}): {ranked[0].reasons[-1]}"
+    else:
+        matches = [i for i in runnable if strategy in (i.name, i.technique)]
+        if not matches:
+            raise click.UsageError(f"Strategy '{strategy}' not found.")
+        chosen = matches[0]
+        selection_note = f"strategy '{chosen.technique}' selected by name"
+
+    turns = chosen.resolve_turns(objective=objective) if chosen.turns else [chosen.resolve(objective=objective)]
+    adapter = HTTPAdapter(target_url=target_url, headers=_parse_headers(headers),
+                          body_format="messages", response_key=response_key)
+    scorer = CompositeScorer([MarkerScorer("TEST-FLAG-"), RefusalScorer()])
+    result = ConversationManager().run(
+        adapter, ScriptedAttacker(turns), objective=objective,
+        success_criteria=chosen.success_criteria, max_turns=max_turns, scorer=scorer,
+    )
+
+    if output_format == "json":
+        click.echo(json.dumps({
+            "objective": objective,
+            "strategy": chosen.technique,
+            "selection": selection_note,
+            "confirmed": result.confirmed,
+            "turns_used": result.turns_used,
+            "stopped_reason": result.stopped_reason,
+            "confidence": result.confidence,
+            "explanation": result.explanation,
+        }, indent=2))
+    else:
+        click.echo(selection_note)
+        verdict = "CONFIRMED" if result.confirmed else "not confirmed"
+        click.echo(f"{verdict} after {result.turns_used} turn(s) [{result.stopped_reason}]")
+        if result.confirmed:
+            click.echo(f"  {result.explanation}")
+
+
 if __name__ == "__main__":
     cli()
