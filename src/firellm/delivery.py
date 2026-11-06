@@ -4,7 +4,7 @@ import base64
 import json
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 import requests
@@ -21,6 +21,19 @@ class PromptDeliveryAdapter(ABC):
     @abstractmethod
     def send(self, prompt: str) -> str:
         raise NotImplementedError
+
+    def send_messages(self, messages: List[Dict[str, str]]) -> str:
+        """Deliver a multi-turn conversation and return the target's reply.
+
+        Default: stateless fallback that sends only the last user message via
+        ``send`` (no history carried). Adapters that can carry history override
+        this. ``messages`` is a list of ``{"role": .., "content": ..}`` dicts.
+        """
+        last_user = ""
+        for msg in messages:
+            if msg.get("role") == "user":
+                last_user = str(msg.get("content", ""))
+        return self.send(last_user)
 
 
 class LocalHeuristicPromptDeliveryAdapter(PromptDeliveryAdapter):
@@ -176,6 +189,53 @@ class HTTPAdapter:
             time.sleep(min(3.0, max(1.0, self.delay)))
 
         payload = self._build_payload(prompt)
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self._build_request(payload, timeout=self.timeout)
+            except (requests.Timeout, requests.ConnectionError, requests.RequestException) as exc:
+                if attempt < self.max_retries:
+                    self._sleep_backoff(attempt)
+                    continue
+                raise HTTPAdapterError(f"HTTP delivery failed: {exc}") from exc
+
+            if response.ok:
+                return self._parse_response(response)
+
+            if response.status_code in {429, 500, 502, 503, 504} and attempt < self.max_retries:
+                self._sleep_backoff(attempt)
+                continue
+
+            raise HTTPAdapterError(
+                f"HTTP delivery failed: HTTP {response.status_code}",
+                status_code=response.status_code,
+            )
+
+        raise HTTPAdapterError("HTTP delivery failed after retries")
+
+    def send_messages(self, messages: List[Dict[str, str]]) -> str:
+        """Deliver a full conversation history and return the target's reply.
+
+        ``messages`` is a list of ``{"role":.., "content":..}`` dicts. With
+        ``body_format == "messages"`` the whole list is sent (stateful target).
+        With ``prompt``/``form`` the target is stateless, so only the last user
+        message content is sent; history is not carried.
+        """
+        if not messages:
+            return self.send("")
+        if self.body_format not in ("messages",):
+            last_user = ""
+            for msg in messages:
+                if msg.get("role") == "user":
+                    last_user = str(msg.get("content", ""))
+            return self.send(last_user)
+
+        if self.delay:
+            time.sleep(min(3.0, max(1.0, self.delay)))
+
+        payload = {"messages": [
+            {"role": str(m.get("role", "user")), "content": str(m.get("content", ""))}
+            for m in messages
+        ]}
         for attempt in range(self.max_retries + 1):
             try:
                 response = self._build_request(payload, timeout=self.timeout)

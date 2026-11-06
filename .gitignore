@@ -113,6 +113,7 @@ scan_results.json
 # Internal planning / research / discussion notes — keep local, never push
 research/
 nextsessionplan.md
+work.txt
 *.plan.md
 *_notes.md
 session-notes/
